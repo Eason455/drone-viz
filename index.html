@@ -1,0 +1,3044 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>无人机飞行轨迹可视化 | Drone Flight Trajectory</title>
+<style>
+/* ========== RESET & BASE ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #1a1d23;
+  --panel-bg: rgba(26, 29, 35, 0.92);
+  --panel-border: rgba(255,255,255,0.08);
+  --text: #e0e0e0;
+  --text-dim: #8899aa;
+  --accent: #4da6ff;
+  --accent2: #00d4aa;
+  --danger: #ff5252;
+  --warn: #ffb74d;
+  --good: #4caf50;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', 'Monaco', monospace;
+  --font-ui: 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --radius: 8px;
+  --transition: 0.2s ease;
+}
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: var(--font-ui); color: var(--text); }
+a { color: var(--accent); }
+
+/* ========== CANVAS ========== */
+#three-canvas { position: fixed; inset: 0; display: block; }
+
+/* ========== TOP BAR ========== */
+#top-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, rgba(26,29,35,0.95) 60%, rgba(26,29,35,0) 100%);
+  pointer-events: none;
+}
+#top-bar > * { pointer-events: auto; }
+#app-title {
+  font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+#app-title .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); animation: pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+#top-actions { display: flex; gap: 8px; align-items: center; }
+#lang-btn, #help-btn {
+  padding: 4px 12px; border-radius: 4px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.05); color: var(--text-dim); cursor: pointer;
+  font-size: 0.78rem; font-family: var(--font-ui); transition: var(--transition);
+}
+#lang-btn:hover, #help-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+
+/* ========== TELEMETRY PANEL ========== */
+#telemetry-panel {
+  position: fixed; right: 12px; top: 50%; transform: translateY(-50%); z-index: 10;
+  width: 200px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.telem-group {}
+.telem-label {
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); margin-bottom: 3px;
+}
+.telem-value { font-size: 1.2rem; font-weight: 700; font-family: var(--font-mono); }
+.telem-sub { font-size: 0.65rem; color: var(--text-dim); font-family: var(--font-mono); }
+
+#telem-alt-val { color: var(--accent); }
+#telem-speed-val { color: var(--accent2); }
+#telem-heading-val { color: var(--warn); }
+
+/* Altitude bar */
+#alt-bar-wrap {
+  width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; margin-top: 4px;
+  position: relative; overflow: hidden;
+}
+#alt-bar-fill {
+  height: 100%; border-radius: 3px; background: linear-gradient(90deg, #2196F3, #4caf50, #ff9800, #f44336);
+  transition: width 0.3s;
+}
+
+/* Battery */
+#battery-wrap { display: flex; align-items: center; gap: 8px; }
+#battery-icon {
+  width: 32px; height: 16px; border: 2px solid var(--text-dim); border-radius: 3px;
+  position: relative;
+}
+#battery-icon::after { content: ''; position: absolute; right: -5px; top: 3px; width: 3px; height: 6px; background: var(--text-dim); border-radius: 0 2px 2px 0; }
+#battery-fill { height: 100%; border-radius: 1px; background: var(--good); transition: width 0.5s, background 0.5s; }
+#battery-pct { font-size: 0.85rem; font-family: var(--font-mono); color: var(--text-dim); }
+
+/* Attitude indicators */
+#attitude-row { display: flex; gap: 16px; }
+.attitude-item { display: flex; flex-direction: column; align-items: center; }
+.attitude-label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; }
+.attitude-val { font-size: 0.85rem; font-family: var(--font-mono); }
+
+/* ========== CAMERA CONTROLS ========== */
+#camera-controls {
+  position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 10;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cam-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--panel-border);
+  background: var(--panel-bg); color: var(--text-dim); cursor: pointer;
+  font-size: 0.7rem; display: flex; align-items: center; justify-content: center;
+  transition: var(--transition); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.cam-btn:hover { border-color: var(--accent); color: var(--text); }
+.cam-btn.active { border-color: var(--accent); background: rgba(77,166,255,0.15); color: var(--accent); }
+
+/* ========== PLAYBACK BAR ========== */
+#playback-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--panel-border);
+  padding: 10px 18px;
+  display: flex; align-items: center; gap: 10px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.pb-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer;
+  font-size: 0.85rem; display: flex; align-items: center; justify-content: center;
+  transition: var(--transition); flex-shrink: 0;
+}
+.pb-btn:hover { background: rgba(255,255,255,0.15); }
+.pb-btn.active { border-color: var(--accent); color: var(--accent); }
+#btn-play { width: 40px; height: 40px; font-size: 1rem; border-color: var(--accent); }
+#speed-label {
+  font-size: 0.75rem; color: var(--text-dim); font-family: var(--font-mono);
+  min-width: 36px; text-align: center; cursor: pointer; user-select: none;
+}
+#speed-label:hover { color: var(--text); }
+#timeline {
+  flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
+  background: rgba(255,255,255,0.1); border-radius: 3px; outline: none; cursor: pointer;
+  min-width: 60px;
+}
+#timeline::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; border: 2px solid #fff;
+}
+#time-display {
+  font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-dim);
+  white-space: nowrap; min-width: 100px; text-align: center;
+}
+#btn-loop {
+  padding: 4px 10px; font-size: 0.7rem; border-radius: 4px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.05); color: var(--text-dim); cursor: pointer;
+  transition: var(--transition);
+}
+#btn-loop.active { border-color: var(--accent); color: var(--accent); background: rgba(77,166,255,0.1); }
+
+/* ========== MINI-MAP ========== */
+#minimap-wrap {
+  position: fixed; bottom: 70px; left: 14px; z-index: 10;
+  width: 180px; height: 180px;
+  border: 2px solid var(--panel-border);
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(26,29,35,0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+#minimap-canvas { width: 100%; height: 100%; display: block; }
+#minimap-label {
+  position: fixed; bottom: 254px; left: 14px; z-index: 11;
+  width: 180px; text-align: center;
+  font-size: 0.6rem; color: var(--text-dim); letter-spacing: 0.1em;
+  text-transform: uppercase; pointer-events: none;
+}
+
+/* ========== STATS OVERLAY ========== */
+#stats-overlay {
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 10;
+  display: flex; gap: 20px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.stat-item { text-align: center; }
+.stat-val { font-size: 1rem; font-weight: 700; font-family: var(--font-mono); color: var(--accent); }
+.stat-lbl { font-size: 0.55rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ========== FILE DROP ZONE ========== */
+#drop-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(26,29,35,0.85);
+  display: none; align-items: center; justify-content: center;
+  border: 3px dashed var(--accent); border-radius: 16px; margin: 20px;
+  pointer-events: none;
+}
+#drop-overlay.show { display: flex; }
+#drop-text { font-size: 1.5rem; color: var(--accent); font-weight: 600; }
+
+/* ========== HELP MODAL ========== */
+#help-modal {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.7);
+  display: none; align-items: center; justify-content: center;
+}
+#help-modal.show { display: flex; }
+#help-content {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 24px; max-width: 440px; width: 90%;
+  backdrop-filter: blur(16px);
+}
+#help-content h2 { margin-bottom: 12px; font-size: 1.1rem; }
+#help-content .kb-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem; }
+#help-content .kb-row kbd {
+  background: rgba(255,255,255,0.1); padding: 1px 8px; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 0.78rem;
+}
+#help-close {
+  margin-top: 14px; padding: 8px 20px; border-radius: 6px;
+  border: 1px solid var(--accent); background: rgba(77,166,255,0.1);
+  color: var(--accent); cursor: pointer; font-size: 0.85rem; width: 100%;
+}
+
+/* ========== RESPONSIVE ========== */
+@media (max-width: 768px) {
+  #telemetry-panel {
+    right: 4px; width: 150px; padding: 10px 12px; gap: 8px;
+    font-size: 0.75rem;
+  }
+  .telem-value { font-size: 0.95rem; }
+  #camera-controls { left: 4px; gap: 4px; }
+  .cam-btn { width: 30px; height: 30px; font-size: 0.6rem; }
+  #playback-bar { padding: 8px 10px; gap: 6px; }
+  #app-title { font-size: 0.9rem; }
+  #time-display { min-width: 80px; font-size: 0.7rem; }
+}
+@media (max-width: 480px) {
+  #telemetry-panel { width: 120px; padding: 8px; gap: 6px; right: 2px; }
+  .telem-value { font-size: 0.8rem; }
+  .telem-label { font-size: 0.55rem; }
+  #camera-controls { display: none; }
+  #playback-bar { padding: 6px 8px; gap: 4px; }
+  .pb-btn { width: 28px; height: 28px; font-size: 0.7rem; }
+  #btn-play { width: 34px; height: 34px; }
+}
+</style>
+</head>
+<body>
+
+<!-- UI Overlays -->
+<div id="top-bar">
+  <div id="app-title"><span class="dot"></span>无人机飞行轨迹可视化</div>
+  <div id="top-actions">
+    <button id="help-btn" title="快捷键帮助">?</button>
+    <button id="lang-btn">EN</button>
+  </div>
+</div>
+
+<div id="telemetry-panel">
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="altitude">高度 ALT</div>
+    <div class="telem-value" id="telem-alt-val">0.0 m</div>
+    <div id="alt-bar-wrap"><div id="alt-bar-fill" style="width:0%"></div></div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="speed">速度 SPD</div>
+    <div class="telem-value" id="telem-speed-val">0.0 m/s</div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="heading">航向 HDG</div>
+    <div class="telem-value" id="telem-heading-val">0&deg; N</div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="position">位置 POS</div>
+    <div class="telem-sub" id="telem-pos-val">--, --</div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="flight_time">飞行时间</div>
+    <div class="telem-value" id="telem-time-val" style="font-size:1rem;">00:00</div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="battery">电池 BAT</div>
+    <div id="battery-wrap">
+      <div id="battery-icon"><div id="battery-fill" style="width:100%"></div></div>
+      <span id="battery-pct">100%</span>
+    </div>
+  </div>
+  <div class="telem-group">
+    <div class="telem-label" data-i18n="attitude">姿态 ATT</div>
+    <div id="attitude-row">
+      <div class="attitude-item"><span class="attitude-label">Pitch</span><span class="attitude-val" id="att-pitch">0.0&deg;</span></div>
+      <div class="attitude-item"><span class="attitude-label">Roll</span><span class="attitude-val" id="att-roll">0.0&deg;</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="camera-controls">
+  <button class="cam-btn active" data-cam="free" title="自由视角 / Free">3D</button>
+  <button class="cam-btn" data-cam="follow" title="跟随 / Follow">&gt;</button>
+  <button class="cam-btn" data-cam="topdown" title="俯瞰 / Top">&nabla;</button>
+</div>
+
+<div id="playback-bar">
+  <button class="pb-btn" id="btn-slower" title="减速">&#171;</button>
+  <span id="speed-label" title="点击切换速度 / Click to change speed">1.0x</span>
+  <button class="pb-btn" id="btn-faster" title="加速">&#187;</button>
+  <button class="pb-btn" id="btn-skip-back" title="后退 5s">|&#9664;</button>
+  <button class="pb-btn" id="btn-play" title="播放/暂停 Space">&#9654;</button>
+  <button class="pb-btn" id="btn-skip-fwd" title="快进 5s">&#9654;|</button>
+  <input type="range" id="timeline" min="0" max="1000" value="0" step="1">
+  <span id="time-display">00:00 / 00:00</span>
+  <button class="pb-btn" id="btn-loop" title="循环播放">Loop</button>
+  <button class="pb-btn" id="btn-import" title="导入数据" style="font-size:0.7rem;width:auto;padding:0 8px;border-radius:4px;">Import</button>
+  <input type="file" id="file-input" accept=".json,.csv" style="display:none;">
+</div>
+
+<div id="minimap-wrap"><canvas id="minimap-canvas" width="180" height="180"></canvas></div>
+<div id="minimap-label">Map</div>
+
+<div id="stats-overlay">
+  <div class="stat-item"><div class="stat-val" id="stat-distance">0 m</div><div class="stat-lbl">总航程</div></div>
+  <div class="stat-item"><div class="stat-val" id="stat-max-alt">0 m</div><div class="stat-lbl">最大高度</div></div>
+  <div class="stat-item"><div class="stat-val" id="stat-max-speed">0 m/s</div><div class="stat-lbl">最大速度</div></div>
+  <div class="stat-item"><div class="stat-val" id="stat-points">0</div><div class="stat-lbl">航点数</div></div>
+</div>
+
+<div id="drop-overlay"><span id="drop-text">释放以导入 / Drop to Import</span></div>
+
+<div id="help-modal">
+  <div id="help-content">
+    <h2>键盘快捷键 / Keyboard Shortcuts</h2>
+    <div class="kb-row"><span>播放 / 暂停</span><kbd>Space</kbd></div>
+    <div class="kb-row"><span>快退 5 秒</span><kbd>&larr;</kbd></div>
+    <div class="kb-row"><span>快进 5 秒</span><kbd>&rarr;</kbd></div>
+    <div class="kb-row"><span>自由视角</span><kbd>1</kbd></div>
+    <div class="kb-row"><span>跟随视角</span><kbd>2</kbd></div>
+    <div class="kb-row"><span>俯瞰视角</span><kbd>3</kbd></div>
+    <div class="kb-row"><span>加速</span><kbd>&uarr;</kbd></div>
+    <div class="kb-row"><span>减速</span><kbd>&darr;</kbd></div>
+    <div class="kb-row"><span>循环播放</span><kbd>L</kbd></div>
+    <div class="kb-row"><span>重置视角</span><kbd>R</kbd></div>
+    <button id="help-close">关闭 / Close</button>
+  </div>
+</div>
+
+<!-- Three.js canvas placeholder (created by JS) -->
+
+<!-- file:// protocol warning -->
+<div id="file-warning" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999;background:#1a1d23;border:2px solid #ff9800;border-radius:12px;padding:24px 32px;text-align:center;max-width:480px;color:#e0e0e0;font-family:sans-serif;">
+  <h2 style="color:#ff9800;margin-bottom:12px;">Chrome 不支持从文件直接打开</h2>
+  <p style="margin-bottom:8px;">请使用以下方式之一运行：</p>
+  <p style="margin-bottom:8px;"><b>方式 1:</b> 双击 <code style="background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:4px;">serve.bat</code></p>
+  <p style="margin-bottom:8px;"><b>方式 2:</b> 终端运行 <code style="background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:4px;">python -m http.server 8080</code></p>
+  <p style="margin-bottom:8px;"><b>方式 3:</b> 用 <b>Firefox</b> 浏览器打开此文件</p>
+  <p style="margin-top:12px;font-size:0.8rem;color:#8899aa;">Chrome blocks ES modules from file:// URLs.<br>Use a local HTTP server or Firefox.</p>
+</div>
+
+<script>
+// Detect file:// protocol and warn Chrome users
+if (location.protocol === 'file:' && /Chrome/.test(navigator.userAgent)) {
+  document.getElementById('file-warning').style.display = 'block';
+}
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ==================== I18N ====================
+const i18n = {
+  zh: {
+    title: '无人机飞行轨迹可视化',
+    altitude: '高度 ALT',
+    speed: '速度 SPD',
+    heading: '航向 HDG',
+    position: '位置 POS',
+    flight_time: '飞行时间',
+    battery: '电池 BAT',
+    attitude: '姿态 ATT',
+    free: '自由视角',
+    follow: '跟随',
+    topdown: '俯瞰',
+    drop_hint: '释放以导入 / Drop to Import',
+    help_title: '键盘快捷键 / Keyboard Shortcuts',
+    play_pause: '播放 / 暂停',
+    skip_back: '快退 5 秒',
+    skip_fwd: '快进 5 秒',
+    cam_free: '自由视角',
+    cam_follow: '跟随视角',
+    cam_topdown: '俯瞰视角',
+    speed_up: '加速',
+    speed_down: '减速',
+    loop_toggle: '循环播放',
+    reset_view: '重置视角',
+    close: '关闭 / Close',
+    import_btn: '导入',
+    land: '地面',
+    takeoff: '起飞',
+    landing: '降落',
+    waypoint: '航点',
+    no_data: '无飞行数据',
+  },
+  en: {
+    title: 'Drone Flight Trajectory',
+    altitude: 'Altitude ALT',
+    speed: 'Speed SPD',
+    heading: 'Heading HDG',
+    position: 'Position POS',
+    flight_time: 'Flight Time',
+    battery: 'Battery BAT',
+    attitude: 'Attitude ATT',
+    free: 'Free View',
+    follow: 'Follow',
+    topdown: 'Top Down',
+    drop_hint: 'Drop to Import',
+    help_title: 'Keyboard Shortcuts',
+    play_pause: 'Play / Pause',
+    skip_back: 'Skip Back 5s',
+    skip_fwd: 'Skip Forward 5s',
+    cam_free: 'Free View',
+    cam_follow: 'Follow View',
+    cam_topdown: 'Top-down View',
+    speed_up: 'Speed Up',
+    speed_down: 'Speed Down',
+    loop_toggle: 'Toggle Loop',
+    reset_view: 'Reset View',
+    close: 'Close',
+    import_btn: 'Import',
+    land: 'Ground',
+    takeoff: 'Takeoff',
+    landing: 'Landing',
+    waypoint: 'Waypoint',
+    no_data: 'No flight data',
+  }
+};
+
+let lang = localStorage.getItem('drone-viz-lang') || 'zh';
+function t(key) { return i18n[lang]?.[key] || i18n.en[key] || key; }
+function updateAllI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+      if (el.textContent.length < 20) el.textContent = t(key);
+    } else {
+      const prevText = el.textContent;
+      // Only update the label part, preserve value
+      const parts = prevText.split('\n');
+      if (parts.length <= 1) el.textContent = t(key);
+    }
+  });
+  // Update specific elements
+  document.getElementById('app-title').innerHTML = '<span class="dot"></span>' + t('title');
+  document.getElementById('drop-text').textContent = t('drop_hint');
+  document.getElementById('lang-btn').textContent = lang === 'zh' ? 'EN' : '中文';
+  // Camera buttons
+  document.querySelector('[data-cam="free"]').setAttribute('title', t('free'));
+  document.querySelector('[data-cam="follow"]').setAttribute('title', t('follow'));
+  document.querySelector('[data-cam="topdown"]').setAttribute('title', t('topdown'));
+}
+
+// ==================== STATE ====================
+const state = {
+  isPlaying: false,
+  playbackTime: 0,
+  playbackSpeed: 1.0,
+  duration: 0,
+  loop: false,
+  camMode: 'free', // 'free' | 'follow' | 'topdown'
+  flightData: [],     // [{t, x, y, z, heading, speed, pitch, roll, lat, lng, alt}, ...]
+  curve: null,        // CatmullRomCurve3
+  prevTime: 0,        // for delta calculation
+  batteryDrainRate: 0, // % per second
+};
+
+// ==================== UTILS ====================
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return a + diff * t;
+}
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function headingToCompass(deg) {
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  const idx = Math.round(((deg % 360 + 360) % 360) / 45) % 8;
+  return dirs[idx];
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// GPS to local Cartesian (simple flat-earth approximation)
+function gpsToLocal(lat, lng, alt, refLat, refLng) {
+  const latM = (lat - refLat) * 111320;
+  const lngM = (lng - refLng) * 111320 * Math.cos(refLat * Math.PI / 180);
+  return { x: lngM, y: alt, z: -latM }; // Three.js: x=east, y=up, z=south
+}
+
+// ==================== DEMO DATA GENERATION ====================
+function generateDemoData() {
+  // Simulated survey flight starting from local origin
+  // Flight phases:
+  // 0-8s: vertical takeoff to 30m
+  // 8-25s: transit NE to survey zone
+  // 25-85s: survey grid (5 lines, 50m each, E-W)
+  // 85-100s: climb and return
+  // 100-115s: descend and land
+
+  const points = [];
+  const dt = 0.25; // time step
+  let t = 0;
+
+  // Origin (home point) with fake GPS coords
+  const refLat = 39.9920;
+  const refLng = 116.3050;
+
+  function addPoint(x, y, z, heading, speed, pitch, roll) {
+    points.push({ t, x, y, z, heading, speed, pitch: pitch||0, roll: roll||0,
+      lat: refLat - z / 111320, lng: refLng + x / (111320 * Math.cos(refLat * Math.PI / 180)), alt: y });
+  }
+
+  // Phase 1: Takeoff (0-8s)
+  const takeoffH = 30;
+  for (; t <= 8; t += dt) {
+    const frac = t / 8;
+    const y = takeoffH * (frac * frac * (3 - 2 * frac)); // smoothstep
+    const speed = 4;
+    addPoint(0, y, 0, 0, speed, 0, 0);
+  }
+
+  // Phase 2: Transit to survey start (8-25s)
+  const transitStart = { x: 0, z: 0 };
+  const transitEnd = { x: 30, z: -40 };
+  for (; t <= 25; t += dt) {
+    const frac = (t - 8) / 17;
+    const sFrac = frac * frac * (3 - 2 * frac);
+    const x = lerp(transitStart.x, transitEnd.x, sFrac);
+    const z = lerp(transitStart.z, transitEnd.z, sFrac);
+    const heading = Math.atan2(transitEnd.x - transitStart.x, -(transitEnd.z - transitStart.z)) * 180 / Math.PI;
+    addPoint(x, takeoffH, z, heading, 10, 0, 0);
+  }
+
+  // Phase 3: Survey grid (25-85s) — 5 lines E-W, spacing 12m N
+  const surveyY = 30;
+  const lineLength = 50;
+  const lineSpacing = 12;
+  const numLines = 5;
+  const surveyStartX = transitEnd.x;
+  const surveyStartZ = transitEnd.z;
+  const surveySpeed = 8;
+
+  for (let line = 0; line < numLines; line++) {
+    const z = surveyStartZ - line * lineSpacing;
+    const goingEast = line % 2 === 0;
+    const xStart = goingEast ? surveyStartX : surveyStartX + lineLength;
+    const xEnd = goingEast ? surveyStartX + lineLength : surveyStartX;
+    const lineDist = lineLength;
+    const lineTime = lineDist / surveySpeed;
+    const endT = t + lineTime;
+
+    const heading = goingEast ? 90 : 270;
+    for (; t <= endT; t += dt) {
+      const frac = (t - (endT - lineTime)) / lineTime;
+      const x = lerp(xStart, xEnd, frac);
+      addPoint(x, surveyY, z, heading, surveySpeed, 0, 0);
+    }
+
+    // Turn to next line (if not last line)
+    if (line < numLines - 1) {
+      const turnTime = 2.5;
+      const turnEnd = t + turnTime;
+      const turnRadius = 6;
+      const nextZ = z - lineSpacing;
+      const turnCenterX = xEnd;
+      const turnCenterZ = (z + nextZ) / 2;
+      const startAngle = goingEast ? 90 : 270;
+      const endAngle = goingEast ? 270 : 90;
+      for (; t <= turnEnd; t += dt) {
+        const frac = (t - (turnEnd - turnTime)) / turnTime;
+        const angle = lerpAngle(startAngle, endAngle, frac) * Math.PI / 180;
+        const tx = turnCenterX + turnRadius * Math.cos(angle - Math.PI/2);
+        const tz = turnCenterZ + turnRadius * Math.sin(angle - Math.PI/2);
+        const thead = lerpAngle(startAngle, endAngle, frac);
+        addPoint(tx, surveyY, tz, thead, 5, 0, 0);
+      }
+    }
+  }
+
+  // Phase 4: Climb and return (85-100s)
+  const returnStartX = surveyStartX + lineLength; // end of last line
+  const returnStartZ = surveyStartZ - (numLines - 1) * lineSpacing;
+  const climbH = 60;
+  for (; t <= 100; t += dt) {
+    const frac = (t - 85) / 15;
+    const y = lerp(surveyY, climbH, clamp(frac * 1.3, 0, 1));
+    const sFrac = clamp((frac - 0.15) / 0.85, 0, 1);
+    const smoothFrac = sFrac * sFrac * (3 - 2 * sFrac);
+    const x = lerp(returnStartX, 0, smoothFrac);
+    const z = lerp(returnStartZ, 0, smoothFrac);
+    const heading = Math.atan2(-x, z) * 180 / Math.PI;
+    addPoint(x, y, z, (heading + 360) % 360, 12, 0, 0);
+  }
+
+  // Phase 5: Descend and land (100-115s)
+  for (; t <= 115; t += dt) {
+    const frac = (t - 100) / 15;
+    const y = climbH * (1 - frac * frac * (3 - 2 * frac));
+    addPoint(0, y, 0, 0, 3, 0, 0);
+  }
+
+  return points;
+}
+
+// ==================== THREE.JS SCENE SETUP ====================
+const container = document.body;
+const canvas = document.createElement('canvas');
+canvas.id = 'three-canvas';
+container.appendChild(canvas);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+
+// Atmospheric sky gradient using scene background + fog
+const skyColor = new THREE.Color(0xc8d8e8);
+scene.background = skyColor;
+scene.fog = new THREE.Fog(0xc8d8e8, 50, 350);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 500);
+camera.position.set(40, 35, 50);
+camera.lookAt(20, 15, -20);
+
+// OrbitControls for free camera mode
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(20, 15, -20);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 5;
+controls.maxDistance = 200;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.update();
+
+// ==================== LIGHTING (cinematic atmosphere) ====================
+// Soft ambient base
+const ambientLight = new THREE.AmbientLight(0x5577aa, 0.45);
+scene.add(ambientLight);
+
+// Sky/ground hemisphere
+const hemisphereLight = new THREE.HemisphereLight(0xeeddcc, 0x334422, 0.5);
+scene.add(hemisphereLight);
+
+// Main sun (warm late-afternoon light for dramatic shadows)
+const sunLight = new THREE.DirectionalLight(0xffeedd, 6.0);
+sunLight.position.set(90, 110, 40);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 4096;
+sunLight.shadow.mapSize.height = 4096;
+sunLight.shadow.camera.near = 0.5;
+sunLight.shadow.camera.far = 450;
+sunLight.shadow.camera.left = -120;
+sunLight.shadow.camera.right = 120;
+sunLight.shadow.camera.top = 120;
+sunLight.shadow.camera.bottom = -120;
+sunLight.shadow.bias = -0.00004;
+sunLight.shadow.normalBias = 0.03;
+sunLight.shadow.radius = 1.5; // soft shadows
+scene.add(sunLight);
+
+// Cool fill light (sky bounce)
+const fillLight = new THREE.DirectionalLight(0x8899cc, 1.0);
+fillLight.position.set(-40, 25, -30);
+scene.add(fillLight);
+
+// Warm rim light (sun bounce from ground)
+const rimLight = new THREE.DirectionalLight(0xeeddbb, 1.5);
+rimLight.position.set(0, 5, 50);
+scene.add(rimLight);
+
+// ==================== GROUND ====================
+// Main grass ground
+const groundGeo = new THREE.PlaneGeometry(400, 400);
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x3d6b35,
+  roughness: 0.9,
+  metalness: 0.0,
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+ground.renderOrder = 0;
+scene.add(ground);
+
+// Secondary ground patch (slightly different green for variation)
+const ground2Geo = new THREE.PlaneGeometry(200, 200);
+const ground2Mat = new THREE.MeshStandardMaterial({
+  color: 0x4a7d40,
+  roughness: 0.85,
+  metalness: 0.02,
+});
+const ground2 = new THREE.Mesh(ground2Geo, ground2Mat);
+ground2.rotation.x = -Math.PI / 2;
+ground2.position.y = 0.005;
+ground2.receiveShadow = true;
+ground2.renderOrder = 0;
+scene.add(ground2);
+
+// Grid on ground (subtle)
+const gridSize = 200;
+const gridStep = 10;
+const gridHelper = new THREE.PolarGridHelper(gridSize / 2, gridSize / gridStep, gridSize / gridStep / 2, 64, 0x3a6830, 0x3a6830);
+gridHelper.position.y = 0.012;
+scene.add(gridHelper);
+
+// Roads (dark gray strips on ground)
+function addRoad(x, z, w, d, rotY) {
+  const geo = new THREE.PlaneGeometry(w, d);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3a3a3e, roughness: 0.95, metalness: 0.0 });
+  const road = new THREE.Mesh(geo, mat);
+  road.rotation.x = -Math.PI / 2;
+  road.position.set(x, 0.015, z);
+  if (rotY) road.rotation.z = rotY;
+  road.receiveShadow = true;
+  road.renderOrder = 0;
+  scene.add(road);
+  return road;
+}
+// Main road running N-S
+addRoad(42, -45, 8, 80, 0);
+// Cross road
+addRoad(38, -45, 50, 6, 0);
+// Access road near home point
+addRoad(0, 5, 4, 20, 0);
+
+// Road lane markings (dashed yellow line)
+function addRoadMarking(x, z, length, rotY) {
+  const geo = new THREE.PlaneGeometry(0.25, length);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xcccc88, transparent: true, opacity: 0.5, depthWrite: false });
+  const mark = new THREE.Mesh(geo, mat);
+  mark.rotation.x = -Math.PI / 2;
+  mark.position.set(x, 0.02, z);
+  if (rotY) mark.rotation.z = rotY;
+  mark.renderOrder = 1;
+  scene.add(mark);
+}
+addRoadMarking(40, -45, 80, 0);
+addRoadMarking(38, -42, 50, 0);
+
+// ==================== BUILDINGS (DETAILED) ====================
+function createWindowRow(parent, count, spacing, width, height, y, zOffset, side) {
+  const winGeo = new THREE.BoxGeometry(width, height, 0.04);
+  const winMat = new THREE.MeshStandardMaterial({ color: 0x88bbee, roughness: 0.2, metalness: 0.8, emissive: 0x112233, emissiveIntensity: 0.3 });
+  const sillGeo = new THREE.BoxGeometry(width + 0.1, 0.04, 0.06);
+  const sillMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5, metalness: 0.4 });
+
+  for (let i = 0; i < count; i++) {
+    const offset = (i - (count - 1) / 2) * spacing;
+    const win = new THREE.Mesh(winGeo, winMat);
+    const sill = new THREE.Mesh(sillGeo, sillMat);
+
+    if (side === 'front') {
+      win.position.set(offset, y, zOffset);
+      sill.position.set(offset, y - height / 2 - 0.02, zOffset);
+    } else if (side === 'side') {
+      win.position.set(zOffset, y, offset);
+      sill.position.set(zOffset, y - height / 2 - 0.02, offset);
+    }
+    win.castShadow = false;
+    parent.add(win);
+    parent.add(sill);
+  }
+}
+
+function addDetailedBuilding(x, z, w, d, floors, color, roofType) {
+  const group = new THREE.Group();
+  const floorH = 3.2;
+  const totalH = floors * floorH;
+
+  // Main body
+  const bodyGeo = new THREE.BoxGeometry(w, totalH, d);
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = totalH / 2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Horizontal floor bands
+  for (let f = 1; f < floors; f++) {
+    const bandGeo = new THREE.BoxGeometry(w + 0.05, 0.1, d + 0.05);
+    const bandMat = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.4, metalness: 0.5 });
+    const band = new THREE.Mesh(bandGeo, bandMat);
+    band.position.y = f * floorH;
+    band.castShadow = true;
+    group.add(band);
+  }
+
+  // Windows on front and back
+  const wCount = Math.max(1, Math.floor(w / 2.2));
+  const wSpacing = w / (wCount + 1);
+  for (let f = 0; f < floors; f++) {
+    const wy = f * floorH + floorH * 0.55;
+    createWindowRow(group, wCount, wSpacing, 0.8, 1.1, wy, d / 2 + 0.02, 'front');
+    createWindowRow(group, wCount, wSpacing, 0.8, 1.1, wy, -d / 2 - 0.02, 'front');
+  }
+
+  // Windows on sides
+  const sCount = Math.max(1, Math.floor(d / 2.2));
+  const sSpacing = d / (sCount + 1);
+  for (let f = 0; f < floors; f++) {
+    const wy = f * floorH + floorH * 0.55;
+    createWindowRow(group, sCount, sSpacing, 0.7, 1.0, wy, w / 2 + 0.02, 'side');
+    createWindowRow(group, sCount, sSpacing, 0.7, 1.0, wy, -w / 2 - 0.02, 'side');
+  }
+
+  // Roof
+  if (roofType === 'flat') {
+    const parapetGeo = new THREE.BoxGeometry(w + 0.3, 0.5, d + 0.3);
+    const parapetMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.5, metalness: 0.3 });
+    const parapet = new THREE.Mesh(parapetGeo, parapetMat);
+    parapet.position.y = totalH + 0.25;
+    parapet.castShadow = true;
+    group.add(parapet);
+
+    // AC units on roof
+    for (let i = 0; i < Math.floor(w * d / 20); i++) {
+      const acGeo = new THREE.BoxGeometry(1.2, 1.0, 0.8);
+      const acMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.7 });
+      const ac = new THREE.Mesh(acGeo, acMat);
+      ac.position.set((Math.random() - 0.5) * (w - 2), totalH + 0.8, (Math.random() - 0.5) * (d - 2));
+      ac.castShadow = true;
+      group.add(ac);
+    }
+  } else if (roofType === 'pitched') {
+    const roofGeo = new THREE.ConeGeometry(Math.max(w, d) * 0.75, totalH * 0.35, 4);
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.7, metalness: 0.1 });
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.y = totalH + totalH * 0.17;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    group.add(roof);
+  } else if (roofType === 'glass') {
+    // Glass dome/atrium
+    const domeGeo = new THREE.SphereGeometry(Math.min(w, d) * 0.4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 3);
+    const domeMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.5 });
+    const dome = new THREE.Mesh(domeGeo, domeMat);
+    dome.position.y = totalH;
+    group.add(dome);
+  }
+
+  // Entrance
+  const entranceGeo = new THREE.BoxGeometry(2.0, 2.8, 0.15);
+  const entranceMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, metalness: 0.8 });
+  const entrance = new THREE.Mesh(entranceGeo, entranceMat);
+  entrance.position.set(0, 1.4, d / 2 + 0.08);
+  group.add(entrance);
+
+  // Entrance awning
+  const awningGeo = new THREE.BoxGeometry(2.4, 0.1, 0.8);
+  const awningMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.6 });
+  const awning = new THREE.Mesh(awningGeo, awningMat);
+  awning.position.set(0, 2.9, d / 2 + 0.4);
+  group.add(awning);
+
+  group.position.set(x, 0, z);
+  scene.add(group);
+  return group;
+}
+
+// Office buildings near survey area
+addDetailedBuilding(45, -50, 10, 7, 5, 0xc8ccd4, 'flat');
+addDetailedBuilding(58, -48, 7, 5, 8, 0xbcc0c8, 'flat');
+addDetailedBuilding(38, -55, 12, 6, 3, 0xd4d0c8, 'pitched');
+addDetailedBuilding(50, -60, 6, 6, 6, 0xc0c4cc, 'glass');
+
+// Cluster on the other side
+addDetailedBuilding(-10, -25, 8, 5, 4, 0xd0d4d8, 'flat');
+addDetailedBuilding(-18, -20, 6, 6, 6, 0xc8c8c8, 'flat');
+addDetailedBuilding(-5, -30, 5, 4, 3, 0xdcd8d0, 'pitched');
+
+// Near home point
+addDetailedBuilding(10, 10, 7, 5, 5, 0xccc8c0, 'flat');
+addDetailedBuilding(18, 15, 5, 4, 7, 0xc0c4cc, 'glass');
+addDetailedBuilding(5, 18, 6, 5, 3, 0xd8d4c8, 'pitched');
+
+// ==================== TREES (MULTI-LEVEL) ====================
+function addDetailedTree(x, z, h) {
+  const group = new THREE.Group();
+
+  // Trunk (tapered, textured-like)
+  const trunkH = h * 0.45;
+  const trunkGeo = new THREE.CylinderGeometry(0.15, 0.28, trunkH, 8, 4);
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, metalness: 0.02 });
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.y = trunkH / 2;
+  trunk.castShadow = true;
+  trunk.receiveShadow = true;
+  group.add(trunk);
+
+  // Crown layers (multiple cones for realistic look)
+  const crownBase = trunkH * 0.7;
+  const crownColors = [0x2d6b1e, 0x357a24, 0x3d8a2c, 0x2a5e1a];
+  const crownSizes = [
+    { r: h * 0.25, h: h * 0.35, y: crownBase + h * 0.12 },
+    { r: h * 0.20, h: h * 0.30, y: crownBase + h * 0.22 },
+    { r: h * 0.14, h: h * 0.22, y: crownBase + h * 0.30 },
+    { r: h * 0.08, h: h * 0.15, y: crownBase + h * 0.35 },
+  ];
+
+  crownSizes.forEach((size, i) => {
+    const crownGeo = new THREE.ConeGeometry(size.r, size.h, 10, 4);
+    const crownMat = new THREE.MeshStandardMaterial({
+      color: crownColors[i],
+      roughness: 0.75,
+      metalness: 0.02,
+    });
+    const crown = new THREE.Mesh(crownGeo, crownMat);
+    crown.position.y = size.y;
+    crown.castShadow = true;
+    crown.receiveShadow = true;
+    group.add(crown);
+  });
+
+  group.position.set(x, 0, z);
+  // Slight random rotation for variety
+  group.rotation.z = (Math.random() - 0.5) * 0.1;
+  group.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(group);
+  return group;
+}
+
+// Place trees around the scene (avoiding flight path and buildings)
+const treePositions = [];
+for (let i = 0; i < 60; i++) {
+  const tx = (Math.random() - 0.5) * 160;
+  const tz = (Math.random() - 0.5) * 160;
+  // Avoid flight path corridor
+  if (Math.abs(tx) < 6 && Math.abs(tz) < 6) continue;
+  if (tx > 18 && tx < 85 && tz < -20 && tz > -100) continue;
+  // Avoid building footprints
+  if (tx > 35 && tx < 70 && tz < -40 && tz > -65) continue;
+  if (tx > -22 && tx < 0 && tz < -15 && tz > -35) continue;
+  if (tx > 2 && tx < 25 && tz > 8 && tz < 22) continue;
+  treePositions.push({ x: tx, z: tz });
+}
+treePositions.forEach(p => {
+  addDetailedTree(p.x, p.z, 5 + Math.random() * 14);
+});
+
+// Park area near home point (smaller decorative trees)
+for (let i = 0; i < 12; i++) {
+  const tx = -8 + Math.random() * 16;
+  const tz = -12 + Math.random() * 16;
+  if (Math.abs(tx) < 3 && Math.abs(tz) < 3) continue;
+  addDetailedTree(tx, tz, 3 + Math.random() * 6);
+}
+
+// ==================== ENVIRONMENT PROPS ====================
+
+// Street lamps along main road
+function addStreetLamp(x, z) {
+  const group = new THREE.Group();
+
+  // Pole
+  const poleGeo = new THREE.CylinderGeometry(0.15, 0.18, 8, 8);
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.3, metalness: 0.7 });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.y = 4;
+  pole.castShadow = true;
+  group.add(pole);
+
+  // Base
+  const baseGeo = new THREE.CylinderGeometry(0.22, 0.25, 0.5, 8);
+  const base = new THREE.Mesh(baseGeo, poleMat);
+  base.position.y = 0.25;
+  group.add(base);
+
+  // Arm
+  const armGeo = new THREE.BoxGeometry(3, 0.1, 0.12);
+  const arm = new THREE.Mesh(armGeo, poleMat);
+  arm.position.set(1.5, 7.5, 0);
+  arm.castShadow = true;
+  group.add(arm);
+
+  // Lamp housing
+  const housingGeo = new THREE.BoxGeometry(1.5, 0.5, 0.5);
+  const housingMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.2, metalness: 0.8 });
+  const housing = new THREE.Mesh(housingGeo, housingMat);
+  housing.position.set(2.8, 7.3, 0);
+  group.add(housing);
+
+  // Light panel (emissive)
+  const lightGeo = new THREE.BoxGeometry(1.2, 0.15, 0.35);
+  const lightMat = new THREE.MeshStandardMaterial({
+    color: 0xffeedd, roughness: 0.1, metalness: 0.1,
+    emissive: 0xffeedd, emissiveIntensity: 0.6
+  });
+  const light = new THREE.Mesh(lightGeo, lightMat);
+  light.position.set(2.8, 7.05, 0);
+  group.add(light);
+
+  group.position.set(x, 0, z);
+  scene.add(group);
+  return group;
+}
+
+// Lamps along the main N-S road (at x=42)
+for (let lz = -80; lz <= 0; lz += 12) {
+  addStreetLamp(34, lz);
+}
+
+// Lamps near home point
+addStreetLamp(-5, 5);
+addStreetLamp(-5, -5);
+
+// --- Parked cars ---
+function addCar(x, z, rotY, color) {
+  const group = new THREE.Group();
+
+  // Body
+  const bodyGeo = new THREE.BoxGeometry(1.8, 0.7, 4.0);
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.25, metalness: 0.5 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.75;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Cabin
+  const cabinGeo = new THREE.BoxGeometry(1.6, 0.45, 2.0);
+  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x8899bb, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.5 });
+  const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+  cabin.position.set(0, 1.2, -0.3);
+  cabin.castShadow = true;
+  group.add(cabin);
+
+  // Roof
+  const roofGeo = new THREE.BoxGeometry(1.65, 0.08, 2.05);
+  const roof = new THREE.Mesh(roofGeo, bodyMat);
+  roof.position.set(0, 1.45, -0.3);
+  roof.castShadow = true;
+  group.add(roof);
+
+  // Wheels
+  for (let wx = -1; wx <= 1; wx += 2) {
+    for (let wz = -1; wz <= 1; wz += 2) {
+      const wheelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.25, 12);
+      wheelGeo.rotateX(Math.PI / 2);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.position.set(wx * 0.85, 0.3, wz * 1.3);
+      wheel.castShadow = true;
+      group.add(wheel);
+    }
+  }
+
+  // Headlights
+  for (let hx = -1; hx <= 1; hx += 2) {
+    const hlGeo = new THREE.BoxGeometry(0.25, 0.12, 0.06);
+    const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, roughness: 0.1, emissive: 0xffffcc, emissiveIntensity: 0.3 });
+    const hl = new THREE.Mesh(hlGeo, hlMat);
+    hl.position.set(hx * 0.6, 0.7, -2.03);
+    group.add(hl);
+  }
+
+  // Tail lights
+  for (let tx = -1; tx <= 1; tx += 2) {
+    const tlGeo = new THREE.BoxGeometry(0.2, 0.1, 0.05);
+    const tlMat = new THREE.MeshStandardMaterial({ color: 0xff2200, roughness: 0.1, emissive: 0xff2200, emissiveIntensity: 0.4 });
+    const tl = new THREE.Mesh(tlGeo, tlMat);
+    tl.position.set(tx * 0.6, 0.7, 2.03);
+    group.add(tl);
+  }
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+  return group;
+}
+
+// Cars parked along the cross road
+addCar(30, -44, 0.2, 0xddeeff);       // light blue
+addCar(25, -44, 0.2, 0xeeeeee);       // white
+addCar(20, -44, 0.2, 0x333333);       // black
+addCar(48, -46, -2.9, 0xff5533);      // red
+addCar(43, -46, -2.9, 0x335577);      // dark blue
+
+// Cars near buildings
+addCar(40, -52, 0.5, 0xddeedd);       // light green
+addCar(-14, -22, 0.3, 0xeeeeff);      // silver
+
+// --- Park benches ---
+function addBench(x, z, rotY) {
+  const group = new THREE.Group();
+
+  // Seat
+  const seatGeo = new THREE.BoxGeometry(2.0, 0.06, 0.5);
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.7, metalness: 0.05 });
+  const seat = new THREE.Mesh(seatGeo, woodMat);
+  seat.position.y = 0.8;
+  seat.castShadow = true;
+  group.add(seat);
+
+  // Back rest
+  const backGeo = new THREE.BoxGeometry(2.0, 0.5, 0.05);
+  const back = new THREE.Mesh(backGeo, woodMat);
+  back.position.set(0, 1.05, -0.25);
+  back.castShadow = true;
+  group.add(back);
+
+  // Legs
+  for (let lx = -1; lx <= 1; lx += 2) {
+    const legGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 6);
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.8 });
+    const leg = new THREE.Mesh(legGeo, metalMat);
+    leg.position.set(lx * 0.8, 0.4, 0.15);
+    leg.castShadow = true;
+    group.add(leg);
+
+    const legBack = new THREE.Mesh(legGeo, metalMat);
+    legBack.position.set(lx * 0.8, 0.4, -0.15);
+    legBack.castShadow = true;
+    group.add(legBack);
+  }
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+  return group;
+}
+
+// Benches in park area near home
+addBench(-10, 0, 0);
+addBench(-10, -8, 0);
+addBench(6, 8, 0.8);
+addBench(6, -6, 1.2);
+
+// --- Fences along road ---
+function addFenceSection(x, z, rotY, length) {
+  const group = new THREE.Group();
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.7 });
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.3, metalness: 0.6 });
+
+  const nPosts = Math.floor(length / 1.5);
+  for (let i = 0; i < nPosts; i++) {
+    const postGeo = new THREE.CylinderGeometry(0.04, 0.05, 1.4, 6);
+    const post = new THREE.Mesh(postGeo, postMat);
+    post.position.set(0, 0.7, i * 1.5 - length / 2 + 0.75);
+    post.castShadow = true;
+    group.add(post);
+  }
+
+  // Rails
+  for (let rh = 0; rh < 2; rh++) {
+    const railGeo = new THREE.BoxGeometry(0.06, 0.06, length);
+    const rail = new THREE.Mesh(railGeo, railMat);
+    rail.position.set(0, 0.5 + rh * 0.6, 0);
+    rail.castShadow = true;
+    group.add(rail);
+  }
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+}
+
+// Fence along road near home
+addFenceSection(-2, 10, 0, 20);
+
+// --- Flower beds (small colored spheres near park) ---
+function addFlowerBed(cx, cz, count, radius) {
+  const colors = [0xff6699, 0xffcc33, 0xff6633, 0xff99aa, 0xffff66, 0xff3366];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * radius;
+    const x = cx + Math.cos(angle) * dist;
+    const z = cz + Math.sin(angle) * dist;
+
+    // Stem
+    const stemGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.3, 4);
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x338833, roughness: 0.8 });
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.set(x, 0.15, z);
+    scene.add(stem);
+
+    // Flower
+    const petalGeo = new THREE.SphereGeometry(0.07, 4, 3);
+    const petalMat = new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random() * colors.length)], roughness: 0.5 });
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(x, 0.35, z);
+    scene.add(petal);
+  }
+}
+addFlowerBed(-10, -4, 25, 3);
+addFlowerBed(8, -4, 20, 2.5);
+
+// --- Power/utility poles ---
+function addUtilityPole(x, z) {
+  const group = new THREE.Group();
+  const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 10, 8);
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.75, metalness: 0.05 });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.y = 5;
+  pole.castShadow = true;
+  group.add(pole);
+
+  // Cross arm
+  const crossGeo = new THREE.BoxGeometry(3, 0.12, 0.15);
+  const cross = new THREE.Mesh(crossGeo, poleMat);
+  cross.position.y = 9;
+  cross.castShadow = true;
+  group.add(cross);
+
+  group.position.set(x, 0, z);
+  scene.add(group);
+}
+addUtilityPole(-50, -40);
+addUtilityPole(-50, -80);
+
+// Power lines between utility poles
+function addPowerLine(x1, z1, x2, z2, y) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  const midX = (x1 + x2) / 2, midZ = (z1 + z2) / 2;
+  const angle = Math.atan2(dx, dz);
+
+  const lineGeo = new THREE.CylinderGeometry(0.02, 0.02, dist, 4);
+  lineGeo.rotateX(Math.PI / 2);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+  const line = new THREE.Mesh(lineGeo, lineMat);
+  line.position.set(midX, y, midZ);
+  line.rotation.y = angle;
+  scene.add(line);
+
+  // Sag (lower middle section)
+  const segments = 3;
+  for (let s = 0; s < segments; s++) {
+    const segGeo = new THREE.CylinderGeometry(0.018, 0.018, dist / segments, 4);
+    segGeo.rotateX(Math.PI / 2);
+    const sag = 0.3 * Math.sin((s + 0.5) / segments * Math.PI);
+    const seg = new THREE.Mesh(segGeo, lineMat);
+    seg.position.set(midX, y - sag, midZ);
+    seg.rotation.y = angle;
+    scene.add(seg);
+  }
+}
+addPowerLine(-50, -40, -50, -80, 9);
+
+// ==================== GROUND DETAILS ====================
+// Concrete sidewalk along main road
+function addSidewalk(x, z, w, d, rotY) {
+  const geo = new THREE.BoxGeometry(w, 0.08, d);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc8c4bc, roughness: 0.7, metalness: 0.05 });
+  const sidewalk = new THREE.Mesh(geo, mat);
+  sidewalk.position.set(x, 0.04, z);
+  if (rotY) sidewalk.rotation.y = rotY;
+  sidewalk.receiveShadow = true;
+  scene.add(sidewalk);
+}
+addSidewalk(34, -45, 2.5, 80, 0);
+addSidewalk(49, -45, 2.5, 80, 0);
+addSidewalk(38, -50, 50, 2.5, 0);
+addSidewalk(38, -38, 50, 2.5, 0);
+
+// Parking lot
+const parkingGeo = new THREE.PlaneGeometry(30, 14);
+const parkingMat = new THREE.MeshStandardMaterial({ color: 0x555558, roughness: 0.8, metalness: 0.05 });
+const parkingLot = new THREE.Mesh(parkingGeo, parkingMat);
+parkingLot.rotation.x = -Math.PI / 2;
+parkingLot.position.set(28, 0.012, -50);
+parkingLot.receiveShadow = true;
+parkingLot.renderOrder = 0;
+scene.add(parkingLot);
+
+// Parking space markings
+for (let p = 0; p < 6; p++) {
+  const lineGeo = new THREE.BoxGeometry(0.12, 0.003, 4.5);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false });
+  const line = new THREE.Mesh(lineGeo, lineMat);
+  line.position.set(16 + p * 4.8, 0.02, -50);
+  line.renderOrder = 1;
+  scene.add(line);
+}
+
+// Dirt patches (worn ground)
+for (let d = 0; d < 8; d++) {
+  const dx = (Math.random() - 0.5) * 140;
+  const dz = (Math.random() - 0.5) * 140;
+  if (Math.abs(dx) < 4 && Math.abs(dz) < 4) continue;
+  const dirtGeo = new THREE.CircleGeometry(1.5 + Math.random() * 4, 8);
+  const dirtMat = new THREE.MeshStandardMaterial({ color: 0x6b5530, roughness: 0.95, metalness: 0.0 });
+  const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+  dirt.rotation.x = -Math.PI / 2;
+  dirt.position.set(dx, 0.008, dz);
+  dirt.receiveShadow = true;
+  dirt.renderOrder = 0;
+  scene.add(dirt);
+}
+
+// Manhole covers on road
+for (let m = 0; m < 4; m++) {
+  const mhGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.02, 16);
+  const mhMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.8 });
+  const mh = new THREE.Mesh(mhGeo, mhMat);
+  mh.position.set(42 + Math.random() * 2, 0.02, -20 - m * 20);
+  mh.receiveShadow = true;
+  scene.add(mh);
+}
+
+// ==================== BUILDING ROOFTOP DETAILS ====================
+// Satellite dishes
+function addSatelliteDish(x, y, z, rotY) {
+  const group = new THREE.Group();
+  const baseGeo = new THREE.CylinderGeometry(0.2, 0.25, 0.8, 8);
+  const base = new THREE.Mesh(baseGeo, new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.7 }));
+  base.position.y = 0.4;
+  base.castShadow = true;
+  group.add(base);
+
+  const dishGeo = new THREE.SphereGeometry(1.0, 16, 8, 0, Math.PI * 2, 0, Math.PI / 3);
+  const dish = new THREE.Mesh(dishGeo, new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.15, metalness: 0.7 }));
+  dish.position.y = 0.9;
+  dish.rotation.x = 0.4;
+  dish.castShadow = true;
+  group.add(dish);
+
+  const armGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6);
+  armGeo.rotateX(Math.PI / 2);
+  const arm = new THREE.Mesh(armGeo, new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.8 }));
+  arm.position.set(0, 0.5, 0.5);
+  arm.rotation.z = 0.5;
+  group.add(arm);
+
+  group.position.set(x, y, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+}
+// On tall building
+addSatelliteDish(58, 25.6, -48, 0.5);
+addSatelliteDish(15, 22.4, 0, 1.2);
+addSatelliteDish(18, 22.4, 15, -0.7);
+
+// Rooftop water tanks
+function addWaterTank(x, y, z) {
+  const group = new THREE.Group();
+  const tankGeo = new THREE.CylinderGeometry(1.0, 1.0, 2.5, 16);
+  const tank = new THREE.Mesh(tankGeo, new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.6, metalness: 0.2 }));
+  tank.position.y = 1.25;
+  tank.castShadow = true;
+  group.add(tank);
+
+  const topGeo = new THREE.CylinderGeometry(1.05, 0.95, 0.2, 16);
+  const top = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.3, metalness: 0.7 }));
+  top.position.y = 2.6;
+  top.castShadow = true;
+  group.add(top);
+
+  // Legs
+  for (let l = 0; l < 4; l++) {
+    const legGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.6, 6);
+    const leg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.7 }));
+    leg.position.set(Math.cos(l * Math.PI / 2) * 0.8, 0.3, Math.sin(l * Math.PI / 2) * 0.8);
+    leg.castShadow = true;
+    group.add(leg);
+  }
+
+  group.position.set(x, y, z);
+  scene.add(group);
+}
+addWaterTank(45, 16, -50);
+addWaterTank(-10, 12.8, -25);
+
+// ==================== BUILDING EXTERNAL DETAILS ====================
+// External wall pipes
+function addWallPipe(bx, by, bz, height, side, rotY) {
+  const pipeGeo = new THREE.CylinderGeometry(0.08, 0.08, height, 8);
+  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.3, metalness: 0.8 });
+  const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+  pipe.position.set(bx, by + height / 2, bz);
+  pipe.castShadow = true;
+  if (rotY) pipe.rotation.y = rotY;
+  scene.add(pipe);
+
+  // Pipe joints every 2m
+  for (let j = 0; j < Math.floor(height / 2); j++) {
+    const jointGeo = new THREE.TorusGeometry(0.12, 0.03, 8, 8);
+    const joint = new THREE.Mesh(jointGeo, pipeMat);
+    joint.position.set(bx, by + j * 2 + 1, bz);
+    scene.add(joint);
+  }
+}
+addWallPipe(50, 0, -52.5, 12, 'side');
+addWallPipe(38, 0, -60.5, 8, 'side');
+addWallPipe(-10, 0, -26.5, 10, 'side');
+
+// Fire escape on one building
+function addFireEscape(bx, bz, floors, floorH) {
+  const group = new THREE.Group();
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.8 });
+
+  // Vertical rails
+  for (let r = 0; r < 2; r++) {
+    const railGeo = new THREE.CylinderGeometry(0.05, 0.05, floors * floorH + 1, 8);
+    const rail = new THREE.Mesh(railGeo, metalMat);
+    rail.position.set(r * 1.2 - 0.6, floors * floorH / 2, 0);
+    rail.castShadow = true;
+    group.add(rail);
+  }
+
+  // Platforms
+  for (let f = 0; f < floors; f++) {
+    const platGeo = new THREE.BoxGeometry(1.2, 0.06, 0.8);
+    const plat = new THREE.Mesh(platGeo, metalMat);
+    plat.position.set(0, f * floorH, 0);
+    plat.castShadow = true;
+    group.add(plat);
+
+    // Railing
+    const railGeo2 = new THREE.BoxGeometry(1.2, 1.0, 0.03);
+    const rail = new THREE.Mesh(railGeo2, metalMat);
+    rail.position.set(0, f * floorH + 0.5, 0.4);
+    group.add(rail);
+  }
+
+  // Stairs (zigzag)
+  for (let f = 0; f < floors - 1; f++) {
+    const stairGeo = new THREE.BoxGeometry(0.6, 0.04, 0.6);
+    const stair = new THREE.Mesh(stairGeo, metalMat);
+    stair.position.set(0.3, f * floorH + floorH / 2, 0);
+    stair.rotation.x = 0.6;
+    stair.castShadow = true;
+    group.add(stair);
+  }
+
+  group.position.set(bx, 0, bz);
+  scene.add(group);
+}
+addFireEscape(-2, -25, 4, 3.2);
+
+// ==================== STREET PROPS ====================
+// Fire hydrants
+function addFireHydrant(x, z) {
+  const group = new THREE.Group();
+  const bodyGeo = new THREE.CylinderGeometry(0.15, 0.2, 0.6, 8);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcc2200, roughness: 0.3, metalness: 0.5 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.3;
+  body.castShadow = true;
+  group.add(body);
+
+  const topGeo = new THREE.CylinderGeometry(0.18, 0.15, 0.15, 8);
+  const top = new THREE.Mesh(topGeo, bodyMat);
+  top.position.y = 0.68;
+  group.add(top);
+
+  // Nozzles
+  for (let n = 0; n < 2; n++) {
+    const nozzleGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.15, 6);
+    nozzleGeo.rotateX(Math.PI / 2);
+    const nozzle = new THREE.Mesh(nozzleGeo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.2, metalness: 0.8 }));
+    nozzle.position.set(n * 0.25 - 0.125, 0.45, 0.15);
+    group.add(nozzle);
+  }
+
+  group.position.set(x, 0, z);
+  scene.add(group);
+}
+addFireHydrant(34, -30);
+addFireHydrant(49, -50);
+addFireHydrant(-4, 8);
+
+// Dumpsters near buildings
+function addDumpster(x, z, rotY) {
+  const group = new THREE.Group();
+  const bodyGeo = new THREE.BoxGeometry(1.8, 1.2, 1.0);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x446644, roughness: 0.5, metalness: 0.3 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.8;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Lid (slightly open)
+  const lidGeo = new THREE.BoxGeometry(1.8, 0.06, 1.05);
+  const lid = new THREE.Mesh(lidGeo, new THREE.MeshStandardMaterial({ color: 0x335533, roughness: 0.4, metalness: 0.4 }));
+  lid.position.set(0, 1.4, 0.2);
+  lid.rotation.x = -0.35;
+  lid.castShadow = true;
+  group.add(lid);
+
+  // Wheels
+  for (let w = -1; w <= 1; w += 2) {
+    const wheelGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.06, 8);
+    wheelGeo.rotateX(Math.PI / 2);
+    const wheel = new THREE.Mesh(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 }));
+    wheel.position.set(w * 0.8, 0.15, 0.45);
+    group.add(wheel);
+  }
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+}
+addDumpster(52, -58, 0);
+addDumpster(-15, -22, 0.5);
+addDumpster(10, 16, -0.3);
+
+// Trash cans
+function addTrashCan(x, z) {
+  const canGeo = new THREE.CylinderGeometry(0.2, 0.18, 0.8, 8);
+  const canMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.7 });
+  const can = new THREE.Mesh(canGeo, canMat);
+  can.position.set(x, 0.4, z);
+  can.castShadow = true;
+  scene.add(can);
+}
+addTrashCan(32, -38);
+addTrashCan(48, -45);
+addTrashCan(-6, 6);
+addTrashCan(8, -2);
+
+// Wooden crates / pallets
+function addCrate(x, z, rotY) {
+  const group = new THREE.Group();
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0xb8956a, roughness: 0.75, metalness: 0.05 });
+  const crateGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
+  const crate = new THREE.Mesh(crateGeo, woodMat);
+  crate.position.y = 0.3;
+  crate.castShadow = true;
+  crate.receiveShadow = true;
+  group.add(crate);
+
+  // Slats
+  for (let s = 0; s < 3; s++) {
+    const slatGeo = new THREE.BoxGeometry(0.85, 0.05, 0.06);
+    const slat = new THREE.Mesh(slatGeo, new THREE.MeshStandardMaterial({ color: 0x9a7d52, roughness: 0.7 }));
+    slat.position.set(0, s * 0.2, 0.4);
+    group.add(slat);
+    const slat2 = new THREE.Mesh(slatGeo, new THREE.MeshStandardMaterial({ color: 0x9a7d52, roughness: 0.7 }));
+    slat2.position.set(0, s * 0.2, -0.4);
+    group.add(slat2);
+  }
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+}
+addCrate(44, -57, 0.4);
+addCrate(46, -56, 0.8);
+addCrate(-12, -28, 0.2);
+
+// Oil drums / barrels
+function addBarrel(x, z, color) {
+  const barrelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.9, 12);
+  const barrelMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.6 });
+  const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+  barrel.position.set(x, 0.45, z);
+  barrel.castShadow = true;
+  barrel.receiveShadow = true;
+  scene.add(barrel);
+
+  // Rim
+  const rimGeo = new THREE.TorusGeometry(0.36, 0.03, 6, 12);
+  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.8 }));
+  rim.position.set(x, 0.9, z);
+  scene.add(rim);
+}
+addBarrel(42, -57, 0x3344aa);
+addBarrel(43, -57.5, 0xcc3333);
+addBarrel(42.5, -56, 0x338833);
+
+// ==================== ROAD SIGNS & TRAFFIC ====================
+// Road sign
+function addRoadSign(x, z, rotY, width, height) {
+  const group = new THREE.Group();
+
+  const poleGeo = new THREE.CylinderGeometry(0.06, 0.07, 3.5, 8);
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.8 });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.y = 1.75;
+  pole.castShadow = true;
+  group.add(pole);
+
+  const signGeo = new THREE.BoxGeometry(width, height, 0.05);
+  const signMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2, metalness: 0.2 });
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(0, 3.2, 0);
+  sign.castShadow = true;
+  group.add(sign);
+
+  group.position.set(x, 0, z);
+  if (rotY) group.rotation.y = rotY;
+  scene.add(group);
+}
+addRoadSign(37, -75, 0, 2.5, 1.2);
+addRoadSign(42, -5, 1.5, 2.0, 1.0);
+
+// Traffic cones near construction
+function addTrafficCone(x, z) {
+  const coneGeo = new THREE.ConeGeometry(0.2, 0.6, 8);
+  const coneMat = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.3, emissive: 0x331100, emissiveIntensity: 0.3 });
+  const cone = new THREE.Mesh(coneGeo, coneMat);
+  cone.position.set(x, 0.3, z);
+  cone.castShadow = true;
+  scene.add(cone);
+
+  // White stripe
+  const stripeGeo = new THREE.TorusGeometry(0.15, 0.03, 4, 16);
+  const stripe = new THREE.Mesh(stripeGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, emissive: 0x333333, emissiveIntensity: 0.2 }));
+  stripe.position.set(x, 0.35, z);
+  stripe.rotation.x = Math.PI / 2;
+  scene.add(stripe);
+}
+// Near one building (construction area)
+for (let c = 0; c < 5; c++) {
+  addTrafficCone(50 + c * 0.8, -63);
+}
+
+// ==================== HEDGES & BUSHES ====================
+function addHedge(x, z, w, d, h) {
+  const hedgeGeo = new THREE.BoxGeometry(w, h, d);
+  const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x3d6b2e, roughness: 0.75, metalness: 0.02 });
+  const hedge = new THREE.Mesh(hedgeGeo, hedgeMat);
+  hedge.position.set(x, h / 2, z);
+  hedge.castShadow = true;
+  hedge.receiveShadow = true;
+  scene.add(hedge);
+}
+// Hedges around buildings
+addHedge(25, -47, 14, 0.6, 1.2);
+addHedge(65, -47, 14, 0.6, 1.2);
+addHedge(-5, -22, 10, 0.6, 1.0);
+
+// More varied bushes (half-spheres)
+function addBush(x, z, r) {
+  const bushGeo = new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  const bushMat = new THREE.MeshStandardMaterial({ color: [0x3d6b2e, 0x4a7d38, 0x2d5a1e][Math.floor(Math.random() * 3)], roughness: 0.75, metalness: 0.02 });
+  const bush = new THREE.Mesh(bushGeo, bushMat);
+  bush.position.set(x, 0, z);
+  bush.castShadow = true;
+  bush.receiveShadow = true;
+  scene.add(bush);
+}
+for (let b = 0; b < 30; b++) {
+  const bx = (Math.random() - 0.5) * 140;
+  const bz = (Math.random() - 0.5) * 140;
+  if (Math.abs(bx) < 4 && Math.abs(bz) < 4) continue;
+  if (bx > 36 && bx < 54 && bz < -40 && bz > -48) continue;
+  addBush(bx, bz, 0.4 + Math.random() * 0.9);
+}
+
+// ==================== GRASS TUFTS ====================
+function addGrassTuft(x, z, height) {
+  const group = new THREE.Group();
+  const grassColors = [0x4a8c3f, 0x559944, 0x3d7035, 0x60a050];
+  for (let g = 0; g < 5; g++) {
+    const bladeGeo = new THREE.CylinderGeometry(0.015, 0.025, height * (0.6 + Math.random() * 0.4), 4);
+    const bladeMat = new THREE.MeshStandardMaterial({ color: grassColors[Math.floor(Math.random() * 4)], roughness: 0.8, metalness: 0.0 });
+    const blade = new THREE.Mesh(bladeGeo, bladeMat);
+    blade.position.set(
+      (Math.random() - 0.5) * 0.25,
+      height * 0.3,
+      (Math.random() - 0.5) * 0.25
+    );
+    blade.rotation.x = (Math.random() - 0.5) * 0.4;
+    blade.rotation.z = (Math.random() - 0.5) * 0.4;
+    group.add(blade);
+  }
+  group.position.set(x, 0, z);
+  scene.add(group);
+}
+
+// Dense grass patches away from roads
+for (let g = 0; g < 80; g++) {
+  const gx = (Math.random() - 0.5) * 150;
+  const gz = (Math.random() - 0.5) * 150;
+  if (Math.abs(gx) < 6 && Math.abs(gz) < 6) continue;
+  if (Math.abs(gx - 42) < 8 && gz < -10 && gz > -90) continue;
+  if (Math.abs(gx - 38) < 8 && gz < -38 && gz > -50) continue;
+  addGrassTuft(gx, gz, 0.3 + Math.random() * 0.7);
+}
+
+// ==================== BILLBOARD ====================
+(function() {
+  const group = new THREE.Group();
+  const polesMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.7 });
+  for (let p = -1; p <= 1; p += 2) {
+    const poleGeo = new THREE.CylinderGeometry(0.2, 0.25, 10, 8);
+    const pole = new THREE.Mesh(poleGeo, polesMat);
+    pole.position.set(p * 3, 5, 0);
+    pole.castShadow = true;
+    group.add(pole);
+  }
+  const boardGeo = new THREE.BoxGeometry(8, 3, 0.2);
+  const boardMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.3, metalness: 0.2 });
+  const board = new THREE.Mesh(boardGeo, boardMat);
+  board.position.set(0, 8.5, 0);
+  board.castShadow = true;
+  group.add(board);
+
+  // Frame
+  const frameGeo = new THREE.BoxGeometry(8.2, 3.2, 0.15);
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, metalness: 0.7 });
+  const frame = new THREE.Mesh(frameGeo, frameMat);
+  frame.position.set(0, 8.5, -0.1);
+  group.add(frame);
+
+  group.position.set(-60, 0, -40);
+  scene.add(group);
+})();
+
+// ==================== HOME PAD ====================
+const padGeo = new THREE.CylinderGeometry(1.2, 1.3, 0.1, 32);
+const padMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.4, metalness: 0.6 });
+const pad = new THREE.Mesh(padGeo, padMat);
+pad.position.y = 0.05;
+pad.receiveShadow = true;
+scene.add(pad);
+
+// "H" marker on pad
+const hGeo = new THREE.BoxGeometry(1.0, 0.02, 1.0);
+const hMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, emissive: 0xffffff, emissiveIntensity: 0.4 });
+const hMarker = new THREE.Mesh(hGeo, hMat);
+hMarker.position.y = 0.11;
+hMarker.renderOrder = 1;
+scene.add(hMarker);
+
+// ==================== DRONE MODEL: DJI Air 3 ====================
+const droneGroup = new THREE.Group();
+
+// --- Materials ---
+const matFuselage = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.35, metalness: 0.45 });
+const matFuselageDark = new THREE.MeshStandardMaterial({ color: 0x3d434a, roughness: 0.35, metalness: 0.5 });
+const matBattery = new THREE.MeshStandardMaterial({ color: 0x555b65, roughness: 0.4, metalness: 0.4 });
+const matSensor = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.15, metalness: 0.7 });
+const matSensorRing = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, roughness: 0.2, metalness: 0.8 });
+const matCameraBody = new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.25, metalness: 0.6 });
+const matLens = new THREE.MeshStandardMaterial({ color: 0x1a3040, roughness: 0.05, metalness: 0.2, emissive: 0x050a10, emissiveIntensity: 0.3 });
+const matLensRing = new THREE.MeshStandardMaterial({ color: 0xbcc0c4, roughness: 0.15, metalness: 0.9 });
+const matArm = new THREE.MeshStandardMaterial({ color: 0x484d55, roughness: 0.4, metalness: 0.45 });
+const matArmStripe = new THREE.MeshStandardMaterial({ color: 0xf05020, roughness: 0.25, metalness: 0.3, emissive: 0x331008, emissiveIntensity: 0.2 });
+const matMotor = new THREE.MeshStandardMaterial({ color: 0x2e323a, roughness: 0.25, metalness: 0.7 });
+const matMotorVent = new THREE.MeshStandardMaterial({ color: 0x1e2128, roughness: 0.3, metalness: 0.6 });
+const matProp = new THREE.MeshStandardMaterial({ color: 0x3d424a, roughness: 0.3, metalness: 0.35 });
+const matPropTip = new THREE.MeshStandardMaterial({ color: 0xf0c040, roughness: 0.2, metalness: 0.3, emissive: 0x221800, emissiveIntensity: 0.3 });
+const matLandingFoot = new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.7, metalness: 0.1 });
+const matVent = new THREE.MeshStandardMaterial({ color: 0x25282e, roughness: 0.4, metalness: 0.5 });
+const matLED = new THREE.MeshStandardMaterial({ color: 0x00ff66, roughness: 0.1, metalness: 0.1, emissive: 0x00ff66, emissiveIntensity: 0.8 });
+
+// --- Fuselage (aerodynamic body) ---
+// Main lower body: flattened box, tapered at front
+const lowerBodyGeo = new THREE.BoxGeometry(0.18, 0.045, 0.26);
+const lowerBody = new THREE.Mesh(lowerBodyGeo, matFuselage);
+lowerBody.position.y = 0.0;
+lowerBody.castShadow = true;
+droneGroup.add(lowerBody);
+
+// Nose taper (wedge piece at front)
+const noseGeoL = new THREE.BoxGeometry(0.09, 0.045, 0.08);
+noseGeoL.translate(0.045, 0, -0.09);
+const noseGeoR = new THREE.BoxGeometry(0.09, 0.045, 0.08);
+noseGeoR.translate(-0.045, 0, -0.09);
+// Use a single tapered front piece instead
+const noseGeo = new THREE.CylinderGeometry(0.02, 0.07, 0.08, 4, 1);
+noseGeo.rotateX(Math.PI / 2);
+noseGeo.translate(0, 0, -0.15);
+const nose = new THREE.Mesh(noseGeo, matFuselage);
+nose.castShadow = true;
+droneGroup.add(nose);
+
+// Upper body taper (front top slopes down)
+const upperTaperGeo = new THREE.BoxGeometry(0.14, 0.02, 0.06);
+upperTaperGeo.translate(0, 0.03, -0.10);
+const upperTaper = new THREE.Mesh(upperTaperGeo, matFuselage);
+upperTaper.castShadow = true;
+droneGroup.add(upperTaper);
+
+// Side panels (slightly angled - creates the characteristic Air 3 side profile)
+for (let side = -1; side <= 1; side += 2) {
+  const sideGeo = new THREE.BoxGeometry(0.015, 0.04, 0.24);
+  const sidePanel = new THREE.Mesh(sideGeo, matFuselageDark);
+  sidePanel.position.set(side * 0.095, -0.003, 0);
+  sidePanel.castShadow = true;
+  droneGroup.add(sidePanel);
+}
+
+// --- Battery compartment (top hump) ---
+const batteryBaseGeo = new THREE.BoxGeometry(0.14, 0.025, 0.14);
+const batteryBase = new THREE.Mesh(batteryBaseGeo, matBattery);
+batteryBase.position.y = 0.033;
+batteryBase.position.z = 0.02;
+batteryBase.castShadow = true;
+droneGroup.add(batteryBase);
+
+// Battery top (slightly smaller, with rounded edges via another box)
+const batteryTopGeo = new THREE.BoxGeometry(0.12, 0.015, 0.12);
+const batteryTop = new THREE.Mesh(batteryTopGeo, matBattery);
+batteryTop.position.y = 0.052;
+batteryTop.position.z = 0.02;
+batteryTop.castShadow = true;
+droneGroup.add(batteryTop);
+
+// Battery LED indicators
+for (let i = 0; i < 4; i++) {
+  const ledGeo = new THREE.BoxGeometry(0.012, 0.004, 0.008);
+  const led = new THREE.Mesh(ledGeo, i < 3 ? matLED : new THREE.MeshStandardMaterial({ color: 0xff3300, roughness: 0.1, metalness: 0.1, emissive: 0xff3300, emissiveIntensity: 0.8 }));
+  led.position.set(-0.04 + i * 0.026, 0.06, 0.05);
+  droneGroup.add(led);
+}
+
+// --- Front vision sensors ---
+function addFrontSensor(x, y, z) {
+  const group = new THREE.Group();
+
+  // Sensor housing
+  const housingGeo = new THREE.CylinderGeometry(0.018, 0.02, 0.015, 16);
+  housingGeo.rotateX(Math.PI / 2);
+  const housing = new THREE.Mesh(housingGeo, matSensorRing);
+  group.add(housing);
+
+  // Lens
+  const lensGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16);
+  lensGeo.rotateX(Math.PI / 2);
+  const lens = new THREE.Mesh(lensGeo, matLens);
+  lens.position.z = -0.006;
+  group.add(lens);
+
+  group.position.set(x, y, z);
+  droneGroup.add(group);
+  return group;
+}
+addFrontSensor(0.04, 0.005, -0.135);
+addFrontSensor(-0.04, 0.005, -0.135);
+
+// --- Bottom sensors ---
+const bottomSensorGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.01, 16);
+const bottomSensor = new THREE.Mesh(bottomSensorGeo, matSensor);
+bottomSensor.position.set(0, -0.026, -0.06);
+droneGroup.add(bottomSensor);
+
+// Ultrasonic sensor (small circle)
+const usGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.004, 16);
+const usSensor = new THREE.Mesh(usGeo, matSensorRing);
+usSensor.position.set(0, -0.026, -0.04);
+droneGroup.add(usSensor);
+
+// --- Heat vents on sides ---
+for (let side = -1; side <= 1; side += 2) {
+  for (let v = 0; v < 4; v++) {
+    const ventGeo = new THREE.BoxGeometry(0.008, 0.003, 0.025);
+    const vent = new THREE.Mesh(ventGeo, matVent);
+    vent.position.set(side * 0.098, 0.005, -0.06 + v * 0.035);
+    droneGroup.add(vent);
+  }
+}
+
+// --- 3-Axis Gimbal Camera ---
+const gimbalGroup = new THREE.Group();
+
+// Upper mount
+const gimbalMountGeo = new THREE.CylinderGeometry(0.018, 0.022, 0.025, 12);
+const gimbalMount = new THREE.Mesh(gimbalMountGeo, matCameraBody);
+gimbalGroup.add(gimbalMount);
+
+// Horizontal arm
+const gimbalArmGeo = new THREE.BoxGeometry(0.03, 0.012, 0.012);
+const gimbalArm = new THREE.Mesh(gimbalArmGeo, matCameraBody);
+gimbalArm.position.y = -0.015;
+gimbalGroup.add(gimbalArm);
+
+// Vertical bracket
+const gimbalBracketGeo = new THREE.BoxGeometry(0.008, 0.025, 0.008);
+const gimbalBracket = new THREE.Mesh(gimbalBracketGeo, matCameraBody);
+gimbalBracket.position.y = -0.03;
+gimbalGroup.add(gimbalBracket);
+
+// Camera body (dual camera housing)
+const camHousingGeo = new THREE.BoxGeometry(0.04, 0.025, 0.03);
+const camHousing = new THREE.Mesh(camHousingGeo, matCameraBody);
+camHousing.position.y = -0.048;
+gimbalGroup.add(camHousing);
+
+// Wide camera lens
+const wideLensGeo = new THREE.CylinderGeometry(0.012, 0.013, 0.015, 16);
+wideLensGeo.rotateX(Math.PI / 2);
+const wideLens = new THREE.Mesh(wideLensGeo, matLensRing);
+wideLens.position.set(0.01, -0.048, -0.02);
+gimbalGroup.add(wideLens);
+
+const wideLensInnerGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.008, 16);
+wideLensInnerGeo.rotateX(Math.PI / 2);
+const wideLensInner = new THREE.Mesh(wideLensInnerGeo, matLens);
+wideLensInner.position.set(0.01, -0.048, -0.022);
+gimbalGroup.add(wideLensInner);
+
+// Tele camera lens (smaller)
+const teleLensGeo = new THREE.CylinderGeometry(0.007, 0.008, 0.01, 16);
+teleLensGeo.rotateX(Math.PI / 2);
+const teleLens = new THREE.Mesh(teleLensGeo, matLensRing);
+teleLens.position.set(-0.012, -0.048, -0.018);
+gimbalGroup.add(teleLens);
+
+const teleLensInnerGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.006, 16);
+teleLensInnerGeo.rotateX(Math.PI / 2);
+const teleLensInner = new THREE.Mesh(teleLensInnerGeo, matLens);
+teleLensInner.position.set(-0.012, -0.048, -0.02);
+gimbalGroup.add(teleLensInner);
+
+gimbalGroup.position.set(0, -0.025, 0.04);
+droneGroup.add(gimbalGroup);
+
+// --- Arms (folding design, Air 3 style) ---
+function createArm(originX, originZ, angleDeg, length, isFront) {
+  const armGroup = new THREE.Group();
+  const angleRad = angleDeg * Math.PI / 180;
+
+  // Arm pivot (where it attaches to body - folding mechanism hint)
+  const pivotGeo = new THREE.CylinderGeometry(0.02, 0.022, 0.03, 8);
+  pivotGeo.rotateX(Math.PI / 2);
+  const pivot = new THREE.Mesh(pivotGeo, matMotor);
+  pivot.position.set(originX, 0.01, originZ);
+  armGroup.add(pivot);
+
+  // Main arm (flattened oval cross-section using scaled cylinder)
+  const armGeo = new THREE.CylinderGeometry(0.018, 0.018, length, 8);
+  armGeo.rotateX(Math.PI / 2);
+  // Flatten it
+  armGeo.scale(1, 0.55, 1);
+  const arm = new THREE.Mesh(armGeo, isFront ? matArm : matArm);
+  const midX = originX + Math.sin(angleRad) * length / 2;
+  const midZ = originZ + Math.cos(angleRad) * length / 2;
+  arm.position.set(midX, 0.01, midZ);
+  arm.rotation.y = angleRad;
+  arm.castShadow = true;
+  armGroup.add(arm);
+
+  // Orange stripe on front arms (near motor)
+  if (isFront) {
+    const stripeGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.04, 8);
+    stripeGeo.rotateX(Math.PI / 2);
+    stripeGeo.scale(1, 0.55, 1);
+    const stripe = new THREE.Mesh(stripeGeo, matArmStripe);
+    const stripeDist = length * 0.85;
+    stripe.position.set(
+      originX + Math.sin(angleRad) * stripeDist,
+      0.01,
+      originZ + Math.cos(angleRad) * stripeDist
+    );
+    stripe.rotation.y = angleRad;
+    armGroup.add(stripe);
+  }
+
+  // Motor pod at end of arm
+  const motorX = originX + Math.sin(angleRad) * length;
+  const motorZ = originZ + Math.cos(angleRad) * length;
+
+  // Motor base
+  const motorBaseGeo = new THREE.CylinderGeometry(0.028, 0.032, 0.025, 12);
+  const motorBase = new THREE.Mesh(motorBaseGeo, matMotor);
+  motorBase.position.set(motorX, 0.01, motorZ);
+  motorBase.castShadow = true;
+  armGroup.add(motorBase);
+
+  // Motor cooling vents (small rings)
+  for (let v = 0; v < 6; v++) {
+    const ventGeo = new THREE.BoxGeometry(0.006, 0.02, 0.004);
+    const vAngle = v * Math.PI / 3;
+    const vent = new THREE.Mesh(ventGeo, matMotorVent);
+    vent.position.set(
+      motorX + Math.cos(vAngle) * 0.025,
+      0.01,
+      motorZ + Math.sin(vAngle) * 0.025
+    );
+    vent.rotation.y = vAngle;
+    armGroup.add(vent);
+  }
+
+  // Motor top (where propeller mounts)
+  const motorTopGeo = new THREE.CylinderGeometry(0.022, 0.026, 0.012, 16);
+  const motorTop = new THREE.Mesh(motorTopGeo, matMotor);
+  motorTop.position.set(motorX, 0.028, motorZ);
+  armGroup.add(motorTop);
+
+  // Propeller - two blades with realistic shape
+  const propGroup = new THREE.Group();
+
+  // Prop hub
+  const hubGeo = new THREE.CylinderGeometry(0.014, 0.016, 0.01, 16);
+  const hub = new THREE.Mesh(hubGeo, matMotor);
+  propGroup.add(hub);
+
+  // Prop blades (elongated, tapered)
+  for (let b = 0; b < 2; b++) {
+    const bladeGroup = new THREE.Group();
+
+    // Main blade body (elongated thin box, tapered by scaling)
+    const bladeGeo = new THREE.BoxGeometry(0.02, 0.004, 0.1);
+    const blade = new THREE.Mesh(bladeGeo, matProp);
+    blade.position.z = 0.05;
+    bladeGroup.add(blade);
+
+    // Blade tip (smaller box, yellow tip)
+    const tipGeo = new THREE.BoxGeometry(0.012, 0.003, 0.025);
+    const tip = new THREE.Mesh(tipGeo, matPropTip);
+    tip.position.z = 0.105;
+    bladeGroup.add(tip);
+
+    // Blade taper (side pieces to give aerodynamic shape)
+    const taperGeo = new THREE.BoxGeometry(0.008, 0.003, 0.08);
+    const taper = new THREE.Mesh(taperGeo, matProp);
+    taper.position.set(0.008, 0, 0.04);
+    bladeGroup.add(taper);
+    const taper2 = new THREE.Mesh(taperGeo, matProp);
+    taper2.position.set(-0.008, 0, 0.04);
+    bladeGroup.add(taper2);
+
+    bladeGroup.rotation.y = b * Math.PI;
+    bladeGroup.rotation.x = 0.08; // slight pitch angle
+    propGroup.add(bladeGroup);
+  }
+
+  // Prop mount screw
+  const screwGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.006, 8);
+  const screw = new THREE.Mesh(screwGeo, matSensor);
+  screw.position.y = 0.008;
+  propGroup.add(screw);
+
+  propGroup.position.set(motorX, 0.04, motorZ);
+  propGroup.userData = { isPropeller: true };
+
+  armGroup.add(propGroup);
+  droneGroup.add(armGroup);
+
+  return { propGroup, armGroup };
+}
+
+// Front arms (swept forward ~35°)
+const frontRight = createArm(0.09, -0.06, 35, 0.20, true);
+const frontLeft = createArm(-0.09, -0.06, -35, 0.20, true);
+// Rear arms (straight out, slightly back)
+const rearRight = createArm(0.09, 0.06, 140, 0.20, false);
+const rearLeft = createArm(-0.09, 0.06, -140, 0.20, false);
+
+const allProps = [frontRight.propGroup, frontLeft.propGroup, rearRight.propGroup, rearLeft.propGroup];
+
+// --- Landing skids (Air 3 has small feet) ---
+function addLandingFoot(x, y, z, rotY) {
+  const group = new THREE.Group();
+
+  // Vertical strut
+  const strutGeo = new THREE.CylinderGeometry(0.006, 0.008, 0.05, 6);
+  const strut = new THREE.Mesh(strutGeo, matFuselageDark);
+  strut.position.y = -0.025;
+  group.add(strut);
+
+  // Horizontal foot
+  const footGeo = new THREE.BoxGeometry(0.04, 0.006, 0.01);
+  const foot = new THREE.Mesh(footGeo, matLandingFoot);
+  foot.position.y = -0.05;
+  group.add(foot);
+
+  group.position.set(x, y, z);
+  if (rotY) group.rotation.y = rotY;
+  droneGroup.add(group);
+}
+
+// Two front landing feet
+addLandingFoot(0.06, 0, -0.08, 0.3);
+addLandingFoot(-0.06, 0, -0.08, -0.3);
+// Two rear feet (slightly further back)
+addLandingFoot(0.06, 0, 0.08, -0.2);
+addLandingFoot(-0.06, 0, 0.08, 0.2);
+
+// --- Rear LED status indicator ---
+const rearLEDGeo = new THREE.BoxGeometry(0.025, 0.006, 0.004);
+const rearLED = new THREE.Mesh(rearLEDGeo, new THREE.MeshStandardMaterial({
+  color: 0x00ff44, roughness: 0.1, metalness: 0.1, emissive: 0x00ff44, emissiveIntensity: 1.0
+}));
+rearLED.position.set(0, 0.005, 0.135);
+droneGroup.add(rearLED);
+
+// --- Dual shadow discs (umbra + penumbra for realistic soft shadows) ---
+function createShadowDisc(size, baseOpacity) {
+  const geo = new THREE.PlaneGeometry(size, size);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: baseOpacity,
+    depthWrite: false,
+  });
+  const disc = new THREE.Mesh(geo, mat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.015;
+  disc.renderOrder = 1;
+  scene.add(disc);
+  return disc;
+}
+const shadowCore = createShadowDisc(1.2, 0.5);   // umbra: small, dark
+const shadowSoft = createShadowDisc(2.2, 0.18);  // penumbra: larger, light
+
+droneGroup.position.set(0, 0, 0);
+droneGroup.scale.set(3.0, 3.0, 3.0);
+scene.add(droneGroup);
+
+// ==================== PROP WASH PARTICLE SYSTEM ====================
+const MAX_PARTICLES = 200;
+const particlesPool = [];
+const particleGeo = new THREE.PlaneGeometry(0.15, 0.15);
+for (let i = 0; i < MAX_PARTICLES; i++) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xcccccc,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const particle = new THREE.Mesh(particleGeo, mat);
+  particle.visible = false;
+  particle.renderOrder = 10;
+  particle.userData = {
+    life: 0, maxLife: 0,
+    vx: 0, vy: 0, vz: 0,
+  };
+  scene.add(particle);
+  particlesPool.push(particle);
+}
+let particleIndex = 0;
+
+function emitPropWash(dronePos, heading, speed, delta) {
+  if (speed < 1) return;
+  const emitRate = Math.floor(speed * 3);
+  const headingRad = heading * Math.PI / 180;
+
+  for (let e = 0; e < emitRate; e++) {
+    const p = particlesPool[particleIndex];
+    particleIndex = (particleIndex + 1) % MAX_PARTICLES;
+
+    // Spawn below drone, spread outward
+    const spreadAngle = (Math.random() - 0.5) * Math.PI;
+    const spreadDist = Math.random() * 0.8;
+    const sx = dronePos.x + Math.cos(spreadAngle) * spreadDist;
+    const sz = dronePos.z + Math.sin(spreadAngle) * spreadDist;
+
+    p.position.set(sx, dronePos.y - 0.3, sz);
+    p.visible = true;
+    p.material.opacity = 0.5 + Math.random() * 0.3;
+
+    // Velocity: mostly downward + outward
+    const outAngle = headingRad + (Math.random() - 0.5) * 1.5;
+    const outSpeed = 1.5 + Math.random() * 3;
+    p.userData.vx = Math.sin(outAngle) * outSpeed;
+    p.userData.vy = -(2 + Math.random() * 4);
+    p.userData.vz = -Math.cos(outAngle) * outSpeed;
+    p.userData.life = 0.4 + Math.random() * 0.8;
+    p.userData.maxLife = p.userData.life;
+  }
+}
+
+function updateParticles(delta) {
+  for (const p of particlesPool) {
+    if (!p.visible) continue;
+    p.userData.life -= delta;
+    if (p.userData.life <= 0) {
+      p.visible = false;
+      p.material.opacity = 0;
+      continue;
+    }
+    const frac = p.userData.life / p.userData.maxLife;
+    p.material.opacity = frac * 0.6;
+    p.position.x += p.userData.vx * delta;
+    p.position.y += p.userData.vy * delta;
+    p.position.z += p.userData.vz * delta;
+    // Slow down
+    p.userData.vx *= 0.96;
+    p.userData.vy *= 0.96;
+    p.userData.vz *= 0.96;
+  }
+}
+
+// ==================== MINI-MAP RENDERER ====================
+const minimapCanvas = document.getElementById('minimap-canvas');
+const minimapCtx = minimapCanvas.getContext('2d');
+const MM_SIZE = 180;
+const MM_CENTER = MM_SIZE / 2;
+
+function worldToMinimap(wx, wz, bounds) {
+  const scale = MM_SIZE / (bounds.max - bounds.min);
+  const mx = (wx - bounds.min) * scale;
+  const my = (wz - bounds.min) * scale;
+  return { x: mx, y: my };
+}
+
+let cachedBounds = null;
+function getWorldBounds() {
+  if (cachedBounds && state.flightData.length === 0) return cachedBounds;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  if (state.flightData.length > 0) {
+    state.flightData.forEach(p => {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+    });
+  }
+  // Expand to include buildings
+  minX = Math.min(minX, -25); maxX = Math.max(maxX, 70);
+  minZ = Math.min(minZ, -100); maxZ = Math.max(maxZ, 25);
+  // Make square
+  const range = Math.max(maxX - minX, maxZ - minZ) * 1.2;
+  const midX = (minX + maxX) / 2;
+  const midZ = (minZ + maxZ) / 2;
+  cachedBounds = { min: midX - range / 2, max: midX + range / 2, range };
+  return cachedBounds;
+}
+
+function renderMinimap(currentData) {
+  const ctx = minimapCtx;
+  const bounds = getWorldBounds();
+  const toMM = (wx, wz) => {
+    const s = MM_SIZE / bounds.range;
+    return {
+      x: (wx - bounds.min) * s,
+      y: MM_SIZE - (wz - bounds.min) * s,
+    };
+  };
+
+  ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+
+  // Background
+  ctx.fillStyle = '#3d6b35';
+  ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+
+  // Roads
+  ctx.strokeStyle = '#555555';
+  ctx.lineWidth = 2;
+  // Main N-S road
+  const r1a = toMM(34, -85);
+  const r1b = toMM(34, 10);
+  ctx.beginPath(); ctx.moveTo(r1a.x, r1a.y); ctx.lineTo(r1b.x, r1b.y); ctx.stroke();
+  const r2a = toMM(50, -85);
+  const r2b = toMM(50, 10);
+  ctx.beginPath(); ctx.moveTo(r2a.x, r2a.y); ctx.lineTo(r2b.x, r2b.y); ctx.stroke();
+  // Cross road
+  const r3a = toMM(20, -50);
+  const r3b = toMM(65, -50);
+  ctx.beginPath(); ctx.moveTo(r3a.x, r3a.y); ctx.lineTo(r3b.x, r3b.y); ctx.stroke();
+  const r4a = toMM(20, -38);
+  const r4b = toMM(65, -38);
+  ctx.beginPath(); ctx.moveTo(r4a.x, r4a.y); ctx.lineTo(r4b.x, r4b.y); ctx.stroke();
+
+  // Parking lot
+  const pl = toMM(13, -57);
+  ctx.fillStyle = '#555558';
+  ctx.fillRect(pl.x, pl.y, 15, 6);
+
+  // Buildings (simple footprints)
+  const buildings = [
+    { x: 40, z: -53.5, w: 10, d: 7 },
+    { x: 55, z: -50.5, w: 7, d: 5 },
+    { x: 32, z: -58, w: 12, d: 6 },
+    { x: 47, z: -63, w: 6, d: 6 },
+    { x: -10, z: -27.5, w: 8, d: 5 },
+    { x: -18, z: -23, w: 6, d: 6 },
+    { x: -5, z: -31.5, w: 5, d: 4 },
+    { x: 10, z: 8, w: 7, d: 5 },
+    { x: 18, z: 13, w: 5, d: 4 },
+    { x: 5, z: 16.5, w: 6, d: 5 },
+  ];
+  ctx.fillStyle = '#888888';
+  buildings.forEach(b => {
+    const pos = toMM(b.x - b.w / 2, b.z - b.d / 2);
+    const ww = b.w * MM_SIZE / bounds.range;
+    const wh = b.d * MM_SIZE / bounds.range;
+    ctx.fillRect(pos.x, pos.y, ww, wh);
+  });
+
+  // Trajectory line
+  if (state.flightData.length > 1) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const first = toMM(state.flightData[0].x, state.flightData[0].z);
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < state.flightData.length; i += 3) {
+      const pt = toMM(state.flightData[i].x, state.flightData[i].z);
+      ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+  }
+
+  // Home point
+  const home = toMM(0, 0);
+  ctx.fillStyle = '#4caf50';
+  ctx.beginPath(); ctx.arc(home.x, home.y, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(home.x, home.y, 4, 0, Math.PI * 2); ctx.stroke();
+
+  // Drone position
+  if (currentData) {
+    const dp = toMM(currentData.x, currentData.z);
+    // Heading triangle
+    const hdgRad = currentData.heading * Math.PI / 180;
+    ctx.save();
+    ctx.translate(dp.x, dp.y);
+    ctx.rotate(-hdgRad + Math.PI / 2);
+    ctx.fillStyle = '#ff4444';
+    ctx.beginPath();
+    ctx.moveTo(0, -5); ctx.lineTo(-4, 4); ctx.lineTo(4, 4); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Border circle
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(MM_CENTER, MM_CENTER, MM_CENTER - 1, 0, Math.PI * 2); ctx.stroke();
+}
+
+// ==================== CAMERA TRANSITION ====================
+let camTransition = null; // { fromPos, fromTarget, toPos, toTarget, progress, duration }
+
+function startCamTransition(toPos, toTarget, duration = 0.8) {
+  camTransition = {
+    fromPos: camera.position.clone(),
+    fromTarget: controls.target.clone(),
+    toPos: toPos.clone(),
+    toTarget: toTarget.clone(),
+    progress: 0,
+    duration,
+  };
+}
+
+// ==================== TRAJECTORY VISUALIZATION ====================
+let trajectoryGroup = new THREE.Group();
+let takeoffMarker = null; // direct reference for pulsing
+let landingMarker = null;
+scene.add(trajectoryGroup);
+
+function clearTrajectory() {
+  while (trajectoryGroup.children.length > 0) {
+    const child = trajectoryGroup.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    trajectoryGroup.remove(child);
+  }
+}
+
+function createTrajectory(flightData) {
+  clearTrajectory();
+
+  if (flightData.length < 2) return;
+
+  // Create curve
+  const curvePoints = flightData.map(p => new THREE.Vector3(p.x, p.y, p.z));
+  const curve = new THREE.CatmullRomCurve3(curvePoints);
+  state.curve = curve;
+
+  // Find altitude range for coloring
+  let minY = Infinity, maxY = -Infinity;
+  curvePoints.forEach(p => {
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  if (maxY - minY < 1) { maxY = minY + 1; }
+
+  // Tube with vertex colors
+  const tubularSegments = Math.min(flightData.length * 2, 400);
+  const tubeGeo = new THREE.TubeGeometry(curve, tubularSegments, 0.06, 8, false);
+  const posAttr = tubeGeo.attributes.position;
+
+  const colors = [];
+  for (let i = 0; i < posAttr.count; i++) {
+    const y = posAttr.getY(i);
+    const t = clamp((y - minY) / (maxY - minY), 0, 1);
+    // Blue (low) -> Cyan -> Green -> Yellow -> Red (high)
+    const color = new THREE.Color();
+    color.setHSL(0.6 - t * 0.6, 0.9, 0.35 + t * 0.25);
+    colors.push(color.r, color.g, color.b);
+  }
+  tubeGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+  const tubeMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.55,
+    metalness: 0.15,
+    side: THREE.DoubleSide,
+  });
+  const tube = new THREE.Mesh(tubeGeo, tubeMat);
+  tube.castShadow = false;
+  tube.receiveShadow = false;
+  tube.renderOrder = 3;
+  trajectoryGroup.add(tube);
+
+  // Thin wireframe overlay for definition
+  const wireGeo = new THREE.TubeGeometry(curve, Math.min(flightData.length, 200), 0.08, 6, false);
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.06,
+    depthTest: true,
+  });
+  const wireframe = new THREE.Mesh(wireGeo, wireMat);
+  trajectoryGroup.add(wireframe);
+
+  // Waypoint markers
+  const markerGeo = new THREE.SphereGeometry(0.25, 8, 8);
+  const markerMat = new THREE.MeshStandardMaterial({ color: 0xffc107, roughness: 0.3, emissive: 0xffc107, emissiveIntensity: 0.5 });
+  const markerStep = Math.max(1, Math.floor(flightData.length / 40));
+  for (let i = 0; i < flightData.length; i += markerStep) {
+    const pt = flightData[i];
+    const marker = new THREE.Mesh(markerGeo, markerMat);
+    marker.position.set(pt.x, pt.y, pt.z);
+    marker.renderOrder = 2;
+    trajectoryGroup.add(marker);
+  }
+
+  // Takeoff marker (green cylinder)
+  const first = flightData[0];
+  const tkoffGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.15, 16);
+  const tkoffMat = new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.3, emissive: 0x4caf50, emissiveIntensity: 0.6 });
+  takeoffMarker = new THREE.Mesh(tkoffGeo, tkoffMat);
+  takeoffMarker.position.set(first.x, 0.08, first.z);
+  takeoffMarker.renderOrder = 2;
+  trajectoryGroup.add(takeoffMarker);
+
+  // Landing marker (red cylinder)
+  const last = flightData[flightData.length - 1];
+  const landGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.15, 16);
+  const landMat = new THREE.MeshStandardMaterial({ color: 0xf44336, roughness: 0.3, emissive: 0xf44336, emissiveIntensity: 0.6 });
+  landingMarker = new THREE.Mesh(landGeo, landMat);
+  landingMarker.position.set(last.x, 0.08, last.z);
+  landingMarker.renderOrder = 2;
+  trajectoryGroup.add(landingMarker);
+
+  // Vertical drop lines at start and end
+  [first, last].forEach((pt, idx) => {
+    const lineGeo = new THREE.CylinderGeometry(0.04, 0.04, pt.y, 6);
+    const lineMat = new THREE.MeshBasicMaterial({ color: idx === 0 ? 0x4caf50 : 0xf44336, transparent: true, opacity: 0.3 });
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.position.set(pt.x, pt.y / 2, pt.z);
+    trajectoryGroup.add(line);
+  });
+}
+
+// ==================== SAMPLE POSITION ON FLIGHT DATA ====================
+function sampleFlightData(time) {
+  const data = state.flightData;
+  if (data.length === 0) return { x: 0, y: 0, z: 0, heading: 0, speed: 0, pitch: 0, roll: 0, lat: 0, lng: 0, alt: 0 };
+
+  // Clamp time
+  const totalT = data[data.length - 1].t;
+  if (time <= 0) return data[0];
+  if (time >= totalT) return data[data.length - 1];
+
+  // Find surrounding points
+  let i = 0;
+  while (i < data.length - 1 && data[i + 1].t <= time) i++;
+  if (i >= data.length - 1) return data[data.length - 1];
+
+  const p0 = data[i];
+  const p1 = data[i + 1];
+  const dt = p1.t - p0.t;
+  if (dt <= 0) return p0;
+  const frac = (time - p0.t) / dt;
+
+  return {
+    x: lerp(p0.x, p1.x, frac),
+    y: lerp(p0.y, p1.y, frac),
+    z: lerp(p0.z, p1.z, frac),
+    heading: lerpAngle(p0.heading, p1.heading, frac),
+    speed: lerp(p0.speed, p1.speed, frac),
+    pitch: lerp(p0.pitch || 0, p1.pitch || 0, frac),
+    roll: lerp(p0.roll || 0, p1.roll || 0, frac),
+    lat: lerp(p0.lat, p1.lat, frac),
+    lng: lerp(p0.lng, p1.lng, frac),
+    alt: lerp(p0.alt, p1.alt, frac),
+  };
+}
+
+// ==================== UPDATE DRONE ====================
+function updateDronePosition(data) {
+  droneGroup.position.set(data.x, data.y, data.z);
+  droneGroup.rotation.set(
+    (data.pitch || 0) * Math.PI / 180,
+    (data.heading || 0) * Math.PI / 180 + Math.PI / 2,
+    -(data.roll || 0) * Math.PI / 180
+  );
+
+  // Update shadows - physically based: spread grows, opacity fades with altitude
+  const alt = data.y;
+  // Core (umbra): spreads faster, fades quickly — vanishes above ~40m
+  const coreSpread = 1 + alt * 0.12;
+  const coreOpacity = 0.5 / (1 + alt * 0.12);
+  shadowCore.position.set(data.x, 0.016, data.z);
+  shadowCore.scale.setScalar(coreSpread);
+  shadowCore.material.opacity = clamp(coreOpacity, 0.01, 0.5);
+
+  // Soft (penumbra): starts larger, spreads more, fades slower
+  const softSpread = 1.5 + alt * 0.15;
+  const softOpacity = 0.18 / (1 + alt * 0.06);
+  shadowSoft.position.set(data.x, 0.015, data.z);
+  shadowSoft.scale.setScalar(softSpread);
+  shadowSoft.material.opacity = clamp(softOpacity, 0.005, 0.18);
+}
+
+// ==================== UPDATE TELEMETRY UI ====================
+function updateTelemetry(data, time) {
+  document.getElementById('telem-alt-val').textContent = data.alt.toFixed(1) + ' m';
+  document.getElementById('telem-speed-val').textContent = data.speed.toFixed(1) + ' m/s';
+  const hdg = ((data.heading % 360) + 360) % 360;
+  document.getElementById('telem-heading-val').innerHTML = hdg.toFixed(0) + '&deg; ' + headingToCompass(hdg);
+  document.getElementById('telem-pos-val').textContent =
+    data.lat.toFixed(5) + ', ' + data.lng.toFixed(5);
+  document.getElementById('telem-time-val').textContent = formatTime(time);
+
+  // Altitude bar
+  const maxAlt = state.flightData.length > 0
+    ? Math.max(...state.flightData.map(p => p.alt || p.y)) * 1.05
+    : 100;
+  const altPct = clamp((data.alt / maxAlt) * 100, 0, 100);
+  document.getElementById('alt-bar-fill').style.width = altPct + '%';
+
+  // Battery
+  const batteryRemaining = clamp(100 - state.batteryDrainRate * time, 0, 100);
+  const battEl = document.getElementById('battery-fill');
+  battEl.style.width = batteryRemaining + '%';
+  if (batteryRemaining < 15) battEl.style.background = '#f44336';
+  else if (batteryRemaining < 30) battEl.style.background = '#ff9800';
+  else battEl.style.background = '#4caf50';
+  document.getElementById('battery-pct').textContent = Math.round(batteryRemaining) + '%';
+
+  // Attitude
+  document.getElementById('att-pitch').textContent = (data.pitch || 0).toFixed(1) + '°';
+  document.getElementById('att-roll').textContent = (data.roll || 0).toFixed(1) + '°';
+}
+
+// ==================== UPDATE PLAYBACK UI ====================
+function updatePlaybackUI() {
+  const t = state.playbackTime;
+  const d = state.duration;
+  document.getElementById('time-display').textContent = formatTime(t) + ' / ' + formatTime(d);
+  const pct = d > 0 ? (t / d) * 1000 : 0;
+  document.getElementById('timeline').value = Math.round(pct);
+  document.getElementById('btn-play').textContent = state.isPlaying ? '⏸' : '▶';
+}
+
+// ==================== CAMERA FOLLOW ====================
+let followCamTarget = new THREE.Vector3();
+let followCamPos = new THREE.Vector3();
+
+function updateFollowCamera(data, delta) {
+  const dronePos = new THREE.Vector3(data.x, data.y, data.z);
+  const headingRad = (data.heading || 0) * Math.PI / 180;
+
+  // Camera behind and above drone
+  const behindDist = 8;
+  const aboveDist = 4;
+  const targetOffset = new THREE.Vector3(0, 0, 3); // look slightly ahead
+
+  const desiredTarget = dronePos.clone().add(targetOffset);
+  const desiredPos = dronePos.clone()
+    .add(new THREE.Vector3(
+      -Math.sin(headingRad) * behindDist,
+      aboveDist,
+      Math.cos(headingRad) * behindDist
+    ));
+
+  const smoothFactor = 1 - Math.exp(-delta * 4); // smooth follow
+
+  followCamTarget.lerp(desiredTarget, smoothFactor);
+  followCamPos.lerp(desiredPos, smoothFactor);
+
+  camera.position.copy(followCamPos);
+  camera.lookAt(followCamTarget);
+}
+
+function updateTopDownCamera(data) {
+  camera.position.set(data.x, data.y + 60, data.z);
+  camera.lookAt(data.x, data.y, data.z);
+}
+
+// ==================== CAMERA MODE SWITCHING ====================
+function setCameraMode(mode) {
+  if (state.camMode === mode) return;
+  state.camMode = mode;
+  document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector(`[data-cam="${mode}"]`);
+  if (btn) btn.classList.add('active');
+
+  const dronePos = droneGroup.position.clone();
+  const curSample = sampleFlightData(state.playbackTime);
+  const dpos = new THREE.Vector3(curSample.x, curSample.y, curSample.z);
+
+  if (mode === 'free') {
+    controls.enabled = true;
+    // Transition to a nice overview position
+    const toPos = new THREE.Vector3(dpos.x + 40, dpos.y + 35, dpos.z + 50);
+    const toTarget = dpos.clone();
+    startCamTransition(toPos, toTarget, 0.8);
+  } else if (mode === 'follow') {
+    controls.enabled = false;
+    followCamTarget.copy(dpos);
+    const hdg = curSample.heading * Math.PI / 180;
+    const toPos = dpos.clone().add(new THREE.Vector3(-Math.sin(hdg) * 8, 4, Math.cos(hdg) * 8));
+    startCamTransition(toPos, dpos.clone(), 0.6);
+  } else if (mode === 'topdown') {
+    controls.enabled = false;
+    const toPos = new THREE.Vector3(dpos.x, dpos.y + 60, dpos.z);
+    startCamTransition(toPos, dpos.clone(), 0.7);
+  }
+}
+
+// ==================== PLAYBACK CONTROL ====================
+function togglePlay() {
+  state.isPlaying = !state.isPlaying;
+  updatePlaybackUI();
+}
+
+function setSpeed(speed) {
+  state.playbackSpeed = speed;
+  document.getElementById('speed-label').textContent = speed.toFixed(1) + 'x';
+}
+
+function cycleSpeed() {
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const currentIdx = speeds.indexOf(state.playbackSpeed);
+  const nextIdx = (currentIdx + 1) % speeds.length;
+  setSpeed(speeds[nextIdx]);
+}
+
+function skipTime(delta) {
+  state.playbackTime = clamp(state.playbackTime + delta, 0, state.duration);
+  // Update drone immediately
+  const data = sampleFlightData(state.playbackTime);
+  updateDronePosition(data);
+  updateTelemetry(data, state.playbackTime);
+  updatePlaybackUI();
+  if (state.camMode === 'follow') {
+    followCamTarget.copy(droneGroup.position);
+    followCamPos.copy(camera.position);
+  }
+}
+
+function seekTo(fraction) {
+  state.playbackTime = fraction * state.duration;
+  const data = sampleFlightData(state.playbackTime);
+  updateDronePosition(data);
+  updateTelemetry(data, state.playbackTime);
+  updatePlaybackUI();
+}
+
+// ==================== LOAD DATA ====================
+function loadFlightData(data) {
+  // Accept both array of points and {points: [...]} format
+  let points = Array.isArray(data) ? data : (data.points || data.trajectory || []);
+
+  if (points.length < 2) {
+    alert(t('no_data'));
+    return;
+  }
+
+  // Convert GPS to local if needed
+  const refLat = points[0].lat || 39.992;
+  const refLng = points[0].lng || 116.305;
+
+  state.flightData = points.map((p, i) => {
+    const lat = p.lat != null ? p.lat : (refLat - (p.z || 0) / 111320);
+    const lng = p.lng != null ? p.lng : (refLng + (p.x || 0) / (111320 * Math.cos(refLat * Math.PI / 180)));
+    const x = p.x != null ? p.x : gpsToLocal(lat, lng, p.alt || p.y || 0, refLat, refLng).x;
+    const y = p.alt != null ? p.alt : (p.y != null ? p.y : 0);
+    const z = p.z != null ? p.z : gpsToLocal(lat, lng, p.alt || 0, refLat, refLng).z;
+
+    return {
+      t: p.t != null ? p.t : (p.timestamp != null ? p.timestamp : i),
+      x, y, z,
+      heading: p.heading || p.yaw || 0,
+      speed: p.speed || 0,
+      pitch: p.pitch || 0,
+      roll: p.roll || 0,
+      lat, lng,
+      alt: y,
+    };
+  });
+
+  // Ensure timestamps are monotonic and start from 0
+  const t0 = state.flightData[0].t;
+  state.flightData.forEach(p => p.t -= t0);
+  state.duration = state.flightData[state.flightData.length - 1].t;
+  state.batteryDrainRate = 100 / (state.duration * 1.8 + 60); // drain over flight + some buffer
+  state.playbackTime = 0;
+
+  // Compute stats
+  let maxAlt = 0, maxSpeed = 0, totalDist = 0;
+  for (let i = 0; i < state.flightData.length; i++) {
+    const p = state.flightData[i];
+    if (p.alt > maxAlt) maxAlt = p.alt;
+    if (p.speed > maxSpeed) maxSpeed = p.speed;
+    if (i > 0) {
+      const dx = p.x - state.flightData[i-1].x;
+      const dy = p.y - state.flightData[i-1].y;
+      const dz = p.z - state.flightData[i-1].z;
+      totalDist += Math.sqrt(dx*dx + dy*dy + dz*dz);
+    }
+  }
+  document.getElementById('stat-distance').textContent = Math.round(totalDist) + ' m';
+  document.getElementById('stat-max-alt').textContent = Math.round(maxAlt) + ' m';
+  document.getElementById('stat-max-speed').textContent = maxSpeed.toFixed(1) + ' m/s';
+  document.getElementById('stat-points').textContent = state.flightData.length;
+  state._stats = { maxAlt, maxSpeed, totalDist };
+
+  createTrajectory(state.flightData);
+  cachedBounds = null; // reset minimap
+  updatePlaybackUI();
+  updateTelemetry(sampleFlightData(0), 0);
+  updateDronePosition(sampleFlightData(0));
+
+  // Reset camera to overview
+  const mid = state.flightData[Math.floor(state.flightData.length / 2)];
+  const toPos = new THREE.Vector3(mid.x + 40, mid.y + 35, mid.z + 50);
+  const toTarget = new THREE.Vector3(mid.x, mid.y, mid.z);
+  if (state.camMode === 'free') {
+    startCamTransition(toPos, toTarget, 0.8);
+  }
+  controls.enabled = true;
+  state.camMode = 'free';
+  document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+  const fb = document.querySelector('[data-cam="free"]');
+  if (fb) fb.classList.add('active');
+
+  // Auto-play imported data too
+  state.isPlaying = true;
+  updatePlaybackUI();
+}
+
+function handleFileImport(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      loadFlightData(data);
+    } catch (err) {
+      alert('JSON 解析失败 / Failed to parse JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ==================== EVENT HANDLERS ====================
+// Playback buttons
+document.getElementById('btn-play').addEventListener('click', togglePlay);
+document.getElementById('btn-slower').addEventListener('click', () => {
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const idx = speeds.indexOf(state.playbackSpeed);
+  if (idx > 0) setSpeed(speeds[idx - 1]);
+});
+document.getElementById('btn-faster').addEventListener('click', () => {
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const idx = speeds.indexOf(state.playbackSpeed);
+  if (idx < speeds.length - 1) setSpeed(speeds[idx + 1]);
+});
+document.getElementById('speed-label').addEventListener('click', cycleSpeed);
+document.getElementById('btn-skip-back').addEventListener('click', () => skipTime(-5));
+document.getElementById('btn-skip-fwd').addEventListener('click', () => skipTime(5));
+document.getElementById('btn-loop').addEventListener('click', () => {
+  state.loop = !state.loop;
+  document.getElementById('btn-loop').classList.toggle('active', state.loop);
+});
+
+// Timeline
+document.getElementById('timeline').addEventListener('input', (e) => {
+  seekTo(parseInt(e.target.value) / 1000);
+});
+
+// Camera buttons
+document.querySelectorAll('.cam-btn').forEach(btn => {
+  btn.addEventListener('click', () => setCameraMode(btn.dataset.cam));
+});
+
+// Lang toggle
+document.getElementById('lang-btn').addEventListener('click', () => {
+  lang = lang === 'zh' ? 'en' : 'zh';
+  localStorage.setItem('drone-viz-lang', lang);
+  updateAllI18n();
+});
+
+// Help modal
+document.getElementById('help-btn').addEventListener('click', () => {
+  document.getElementById('help-modal').classList.add('show');
+});
+document.getElementById('help-close').addEventListener('click', () => {
+  document.getElementById('help-modal').classList.remove('show');
+});
+document.getElementById('help-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'help-modal') e.target.classList.remove('show');
+});
+
+// File import
+document.getElementById('btn-import').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', (e) => {
+  if (e.target.files[0]) handleFileImport(e.target.files[0]);
+  e.target.value = '';
+});
+
+// Drag and drop
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.add('show');
+});
+document.addEventListener('dragleave', (e) => {
+  if (e.target === document.documentElement || e.target === document.body) {
+    document.getElementById('drop-overlay').classList.remove('show');
+  }
+});
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.remove('show');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileImport(file);
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  // Don't trigger when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  switch (e.key) {
+    case ' ': e.preventDefault(); togglePlay(); break;
+    case 'ArrowLeft': e.preventDefault(); skipTime(-5); break;
+    case 'ArrowRight': e.preventDefault(); skipTime(5); break;
+    case 'ArrowUp': e.preventDefault();
+      document.getElementById('btn-faster').click(); break;
+    case 'ArrowDown': e.preventDefault();
+      document.getElementById('btn-slower').click(); break;
+    case '1': setCameraMode('free'); break;
+    case '2': setCameraMode('follow'); break;
+    case '3': setCameraMode('topdown'); break;
+    case 'l': case 'L':
+      state.loop = !state.loop;
+      document.getElementById('btn-loop').classList.toggle('active', state.loop);
+      break;
+    case 'r': case 'R':
+      if (state.camMode === 'free') {
+        const mid = state.flightData.length > 0
+          ? state.flightData[Math.floor(state.flightData.length / 2)]
+          : { x: 20, y: 15, z: -20 };
+        controls.target.set(mid.x || 20, mid.y || 15, mid.z || -20);
+        controls.update();
+      }
+      break;
+  }
+});
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ==================== INIT ====================
+function init() {
+  // Generate demo data
+  state.flightData = generateDemoData();
+  state.duration = state.flightData[state.flightData.length - 1].t;
+  state.batteryDrainRate = 100 / (state.duration * 1.8 + 60);
+
+  // Compute flight stats
+  let maxAlt = 0, maxSpeed = 0, totalDist = 0;
+  for (let i = 0; i < state.flightData.length; i++) {
+    const p = state.flightData[i];
+    if (p.alt > maxAlt) maxAlt = p.alt;
+    if (p.speed > maxSpeed) maxSpeed = p.speed;
+    if (i > 0) {
+      const dx = p.x - state.flightData[i-1].x;
+      const dy = p.y - state.flightData[i-1].y;
+      const dz = p.z - state.flightData[i-1].z;
+      totalDist += Math.sqrt(dx*dx + dy*dy + dz*dz);
+    }
+  }
+  document.getElementById('stat-distance').textContent = Math.round(totalDist) + ' m';
+  document.getElementById('stat-max-alt').textContent = Math.round(maxAlt) + ' m';
+  document.getElementById('stat-max-speed').textContent = maxSpeed.toFixed(1) + ' m/s';
+  document.getElementById('stat-points').textContent = state.flightData.length;
+  state._stats = { maxAlt, maxSpeed, totalDist };
+
+  // Create trajectory
+  createTrajectory(state.flightData);
+  cachedBounds = null; // reset minimap bounds
+
+  // Set initial drone position
+  updateDronePosition(sampleFlightData(0));
+  updateTelemetry(sampleFlightData(0), 0);
+  updatePlaybackUI();
+  updateAllI18n();
+
+  // Set initial camera target
+  const mid = state.flightData[Math.floor(state.flightData.length / 2)];
+  controls.target.set(mid.x, mid.y, mid.z);
+  controls.update();
+
+  state.prevTime = performance.now() / 1000;
+
+  // Auto-play for presentation
+  state.isPlaying = true;
+  updatePlaybackUI();
+}
+
+// ==================== ANIMATION LOOP ====================
+function animate() {
+  requestAnimationFrame(animate);
+
+  const now = performance.now() / 1000;
+  const rawDelta = now - state.prevTime;
+  const delta = clamp(rawDelta, 0, 0.1);
+  state.prevTime = now;
+
+  // Update playback + sample once
+  let flightSample;
+  if (state.isPlaying && state.duration > 0) {
+    state.playbackTime += delta * state.playbackSpeed;
+
+    if (state.playbackTime >= state.duration) {
+      if (state.loop) {
+        state.playbackTime = state.playbackTime % state.duration;
+      } else {
+        state.playbackTime = state.duration;
+        state.isPlaying = false;
+      }
+    }
+
+    flightSample = sampleFlightData(state.playbackTime);
+    updateDronePosition(flightSample);
+    updateTelemetry(flightSample, state.playbackTime);
+    updatePlaybackUI();
+  } else {
+    flightSample = sampleFlightData(state.playbackTime);
+  }
+
+  // Propeller rotation (vary with speed for realism)
+  const basePropSpeed = state.isPlaying ? 60 : 0;
+  const propSpeed = basePropSpeed + (flightSample.speed || 0) * 25;
+  allProps.forEach(prop => {
+    prop.rotation.y += propSpeed * delta;
+  });
+
+  // Prop wash particles (only when drone is low and moving)
+  if (flightSample.y < 8 && flightSample.speed > 1) {
+    emitPropWash(
+      new THREE.Vector3(flightSample.x, flightSample.y, flightSample.z),
+      flightSample.heading,
+      flightSample.speed,
+      delta
+    );
+  }
+  updateParticles(delta);
+
+  // Camera transitions (smooth lerp)
+  if (camTransition) {
+    camTransition.progress += delta / camTransition.duration;
+    if (camTransition.progress >= 1) {
+      camera.position.copy(camTransition.toPos);
+      controls.target.copy(camTransition.toTarget);
+      camTransition = null;
+    } else {
+      const t = camTransition.progress;
+      const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t; // easeInOutQuad
+      camera.position.lerpVectors(camTransition.fromPos, camTransition.toPos, ease);
+      controls.target.lerpVectors(camTransition.fromTarget, camTransition.toTarget, ease);
+    }
+  }
+
+  // Update camera
+  if (!camTransition) {
+    if (state.camMode === 'follow') {
+      updateFollowCamera(flightSample, delta);
+    } else if (state.camMode === 'topdown') {
+      updateTopDownCamera(flightSample);
+    } else if (state.camMode === 'free') {
+      controls.update();
+    }
+  }
+
+  // Pulse markers
+  if (takeoffMarker) {
+    const s = 1 + Math.sin(now * 2) * 0.1;
+    takeoffMarker.scale.setScalar(s);
+  }
+  if (landingMarker) {
+    const s = 1 + Math.sin(now * 2 + Math.PI) * 0.1;
+    landingMarker.scale.setScalar(s);
+  }
+
+  // Render mini-map (every 5th frame for performance)
+  if (Math.floor(now * 60) % 5 === 0) {
+    renderMinimap(flightSample);
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ==================== START ====================
+init();
+animate();
+
+console.log('[OK] 无人机飞行轨迹可视化已就绪 - 自动播放中');
+console.log('[OK] Drag JSON to import | Space: play/pause | 1/2/3: camera | R: reset view');
+console.log('[OK] Drone Flight Trajectory Visualization ready - Auto-playing');
+</script>
+</body>
+</html>
