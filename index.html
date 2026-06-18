@@ -235,6 +235,76 @@ a { color: var(--accent); }
   color: var(--accent); cursor: pointer; font-size: 0.85rem; width: 100%;
 }
 
+/* ========== LOADING SPINNER ========== */
+#loading-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px;
+  transition: opacity 0.4s ease-out;
+}
+#loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+#loading-spinner {
+  width: 40px; height: 40px;
+  border: 3px solid rgba(255,255,255,0.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loading-text { color: var(--text-dim); font-size: 0.85rem; }
+
+/* ========== VERSION BADGE ========== */
+#version-badge {
+  position: fixed; bottom: 62px; right: 14px; z-index: 11;
+  font-size: 0.6rem; color: rgba(255,255,255,0.25);
+  font-family: var(--font-mono); pointer-events: none;
+  letter-spacing: 0.04em;
+}
+
+/* ========== KEYBOARD HINT BAR ========== */
+#kb-hint-bar {
+  position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%); z-index: 11;
+  background: rgba(26,29,35,0.88);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.7rem; color: var(--text-dim);
+  display: flex; gap: 12px; align-items: center;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: opacity 0.5s, transform 0.3s;
+  pointer-events: none;
+}
+#kb-hint-bar.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); }
+#kb-hint-bar kbd {
+  background: rgba(255,255,255,0.12); padding: 1px 6px; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 0.65rem; color: var(--text);
+}
+
+/* ========== MOBILE TOUCH HINTS ========== */
+#touch-hint-overlay {
+  position: fixed; inset: 0; z-index: 150;
+  pointer-events: none;
+  display: none; align-items: center; justify-content: center;
+}
+#touch-hint-overlay.show { display: flex; }
+#touch-hint-content {
+  background: rgba(26,29,35,0.9);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 16px 24px;
+  text-align: center; font-size: 0.8rem; color: var(--text-dim);
+  backdrop-filter: blur(8px);
+  display: flex; flex-direction: column; gap: 8px;
+  animation: fadeInOut 4s ease-in-out forwards;
+}
+@keyframes fadeInOut {
+  0% { opacity: 0; } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; }
+}
+#touch-hint-content .gesture-icon {
+  font-size: 1.5rem; letter-spacing: 6px;
+}
+
 /* ========== RESPONSIVE ========== */
 @media (max-width: 768px) {
   #telemetry-panel {
@@ -260,6 +330,32 @@ a { color: var(--accent); }
 </style>
 </head>
 <body>
+
+<!-- Loading overlay (hidden after Three.js initializes) -->
+<div id="loading-overlay">
+  <div id="loading-spinner"></div>
+  <div id="loading-text">Loading 3D Engine...</div>
+</div>
+
+<!-- Mobile touch gesture hints (auto-hides) -->
+<div id="touch-hint-overlay">
+  <div id="touch-hint-content">
+    <div class="gesture-icon">&#9755; &#9756;</div>
+    <div data-i18n="touch_hint">单指旋转 / 双指平移缩放</div>
+    <div style="font-size:0.65rem;color:rgba(255,255,255,0.3);">1-finger rotate / 2-finger pan zoom</div>
+  </div>
+</div>
+
+<!-- Keyboard shortcut hint bar (auto-hides after first use) -->
+<div id="kb-hint-bar">
+  <span><kbd>Space</kbd> Play</span>
+  <span><kbd>&larr;&rarr;</kbd> Skip</span>
+  <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> View</span>
+  <span><kbd>L</kbd> Loop</span>
+</div>
+
+<!-- Version badge -->
+<div id="version-badge">v2.0.0 — 2026-06-18</div>
 
 <!-- UI Overlays -->
 <div id="top-bar">
@@ -384,6 +480,54 @@ if (location.protocol === 'file:' && /Chrome/.test(navigator.userAgent)) {
   }
 }
 </script>
+<!-- CDN fallback: if unpkg fails, try jsdelivr -->
+<script>
+(function() {
+  var loadingEl = document.getElementById('loading-text');
+  var fallbackMap = {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  };
+  window._cdnTried = false;
+  window._cdnFallback = function() {
+    if (window._cdnTried) return;
+    window._cdnTried = true;
+    if (loadingEl) loadingEl.textContent = 'Switching CDN...';
+    // Remove old importmap
+    var oldMap = document.querySelector('script[type="importmap"]');
+    if (oldMap) oldMap.remove();
+    // Add new importmap
+    var newMap = document.createElement('script');
+    newMap.type = 'importmap';
+    newMap.textContent = JSON.stringify(fallbackMap);
+    document.head.appendChild(newMap);
+    // Re-add module script (after a short delay for importmap to register)
+    setTimeout(function() {
+      var modScript = document.querySelector('script[type="module"]');
+      if (modScript) {
+        var src = modScript.textContent;
+        modScript.remove();
+        var s = document.createElement('script');
+        s.type = 'module';
+        s.textContent = src;
+        document.body.appendChild(s);
+      }
+    }, 300);
+  };
+  // Listen for module import errors
+  window.addEventListener('error', function(e) {
+    if (e.target && e.target.tagName === 'SCRIPT' && e.target.type === 'module') {
+      window._cdnFallback();
+    }
+  }, true);
+  // Also set a timeout: if module doesn't load within 10s, try fallback
+  setTimeout(function() {
+    if (typeof THREE === 'undefined') window._cdnFallback();
+  }, 10000);
+})();
+</script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -422,6 +566,9 @@ const i18n = {
     landing: '降落',
     waypoint: '航点',
     no_data: '无飞行数据',
+    touch_hint: '单指旋转 / 双指平移缩放',
+    loading: '加载中...',
+    load_cdn_fallback: '切换CDN...',
   },
   en: {
     title: 'Drone Flight Trajectory',
@@ -454,6 +601,9 @@ const i18n = {
     landing: 'Landing',
     waypoint: 'Waypoint',
     no_data: 'No flight data',
+    touch_hint: '1-finger rotate / 2-finger pan zoom',
+    loading: 'Loading...',
+    load_cdn_fallback: 'Switching CDN...',
   }
 };
 
@@ -514,6 +664,44 @@ function headingToCompass(deg) {
   return dirs[idx];
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ==================== SHARED STATS COMPUTATION ====================
+function computeFlightStats(points) {
+  let maxAlt = 0, maxSpeed = 0, totalDist = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    if (p.alt > maxAlt) maxAlt = p.alt;
+    if (p.speed > maxSpeed) maxSpeed = p.speed;
+    if (i > 0) {
+      const dx = p.x - points[i - 1].x;
+      const dy = p.y - points[i - 1].y;
+      const dz = p.z - points[i - 1].z;
+      totalDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+  }
+  return { maxAlt, maxSpeed, totalDist, pointCount: points.length };
+}
+
+function updateStatsUI(stats) {
+  document.getElementById('stat-distance').textContent = Math.round(stats.totalDist) + ' m';
+  document.getElementById('stat-max-alt').textContent = Math.round(stats.maxAlt) + ' m';
+  document.getElementById('stat-max-speed').textContent = stats.maxSpeed.toFixed(1) + ' m/s';
+  document.getElementById('stat-points').textContent = stats.pointCount;
+}
+
+// ==================== BATTERY MODEL (physics-based) ====================
+// More realistic: base hover draw + speed² term + climb penalty
+function computeBatteryDrainRate(duration, maxSpeed, maxAlt) {
+  // Estimate average drain: hover ~8% per minute, full speed ~20% per minute
+  const avgSpeed = maxSpeed * 0.4; // assume 40% of max on average
+  const avgClimb = maxAlt / (duration || 60); // average climb rate
+  const baseHoverDrain = 0.08; // 8% per minute at hover
+  const speedFactor = 0.0004;   // additional drain per (m/s)²
+  const climbFactor = 0.015;    // additional drain per m/s climb
+  const drainPerMinute = baseHoverDrain + speedFactor * avgSpeed * avgSpeed + climbFactor * Math.max(0, avgClimb);
+  const drainPerSecond = drainPerMinute / 60;
+  return { drainPerSecond, drainPerMinute };
+}
 
 // GPS to local Cartesian (simple flat-earth approximation)
 function gpsToLocal(lat, lng, alt, refLat, refLng) {
@@ -650,6 +838,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
+// Adaptive shadow map: high-DPI gets 4096, standard gets 2048
+const shadowRes = Math.min(window.devicePixelRatio, 2) > 1.5 ? 4096 : 2048;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
 
@@ -685,8 +876,8 @@ scene.add(hemisphereLight);
 const sunLight = new THREE.DirectionalLight(0xffeedd, 6.0);
 sunLight.position.set(90, 110, 40);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 4096;
-sunLight.shadow.mapSize.height = 4096;
+sunLight.shadow.mapSize.width = shadowRes;
+sunLight.shadow.mapSize.height = shadowRes;
 sunLight.shadow.camera.near = 0.5;
 sunLight.shadow.camera.far = 450;
 sunLight.shadow.camera.left = -120;
@@ -915,49 +1106,16 @@ addDetailedBuilding(18, 15, 5, 4, 7, 0xc0c4cc, 'glass');
 addDetailedBuilding(5, 18, 6, 5, 3, 0xd8d4c8, 'pitched');
 
 // ==================== TREES (MULTI-LEVEL) ====================
-function addDetailedTree(x, z, h) {
-  const group = new THREE.Group();
+// ==================== INSTANCED TREES (5 draw calls for ~72 trees) ====================
+// Collect all tree data first, then batch-create InstancedMeshes
+const treeData = [];
 
-  // Trunk (tapered, textured-like)
-  const trunkH = h * 0.45;
-  const trunkGeo = new THREE.CylinderGeometry(0.15, 0.28, trunkH, 8, 4);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, metalness: 0.02 });
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  trunk.position.y = trunkH / 2;
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
-  group.add(trunk);
-
-  // Crown layers (multiple cones for realistic look)
-  const crownBase = trunkH * 0.7;
-  const crownColors = [0x2d6b1e, 0x357a24, 0x3d8a2c, 0x2a5e1a];
-  const crownSizes = [
-    { r: h * 0.25, h: h * 0.35, y: crownBase + h * 0.12 },
-    { r: h * 0.20, h: h * 0.30, y: crownBase + h * 0.22 },
-    { r: h * 0.14, h: h * 0.22, y: crownBase + h * 0.30 },
-    { r: h * 0.08, h: h * 0.15, y: crownBase + h * 0.35 },
-  ];
-
-  crownSizes.forEach((size, i) => {
-    const crownGeo = new THREE.ConeGeometry(size.r, size.h, 10, 4);
-    const crownMat = new THREE.MeshStandardMaterial({
-      color: crownColors[i],
-      roughness: 0.75,
-      metalness: 0.02,
-    });
-    const crown = new THREE.Mesh(crownGeo, crownMat);
-    crown.position.y = size.y;
-    crown.castShadow = true;
-    crown.receiveShadow = true;
-    group.add(crown);
+function registerTree(x, z, h) {
+  treeData.push({
+    x, z, h,
+    rotY: Math.random() * Math.PI * 2,
+    rotZ: (Math.random() - 0.5) * 0.1,
   });
-
-  group.position.set(x, 0, z);
-  // Slight random rotation for variety
-  group.rotation.z = (Math.random() - 0.5) * 0.1;
-  group.rotation.y = Math.random() * Math.PI * 2;
-  scene.add(group);
-  return group;
 }
 
 // Place trees around the scene (avoiding flight path and buildings)
@@ -965,26 +1123,72 @@ const treePositions = [];
 for (let i = 0; i < 60; i++) {
   const tx = (Math.random() - 0.5) * 160;
   const tz = (Math.random() - 0.5) * 160;
-  // Avoid flight path corridor
   if (Math.abs(tx) < 6 && Math.abs(tz) < 6) continue;
   if (tx > 18 && tx < 85 && tz < -20 && tz > -100) continue;
-  // Avoid building footprints
   if (tx > 35 && tx < 70 && tz < -40 && tz > -65) continue;
   if (tx > -22 && tx < 0 && tz < -15 && tz > -35) continue;
   if (tx > 2 && tx < 25 && tz > 8 && tz < 22) continue;
   treePositions.push({ x: tx, z: tz });
 }
-treePositions.forEach(p => {
-  addDetailedTree(p.x, p.z, 5 + Math.random() * 14);
-});
+treePositions.forEach(p => registerTree(p.x, p.z, 5 + Math.random() * 14));
 
 // Park area near home point (smaller decorative trees)
 for (let i = 0; i < 12; i++) {
   const tx = -8 + Math.random() * 16;
   const tz = -12 + Math.random() * 16;
   if (Math.abs(tx) < 3 && Math.abs(tz) < 3) continue;
-  addDetailedTree(tx, tz, 3 + Math.random() * 6);
+  registerTree(tx, tz, 3 + Math.random() * 6);
 }
+
+// Batch-create InstancedMeshes for all trees
+const baseTreeH = 10; // reference height for geometry sizing
+const treeCount = treeData.length;
+
+// Trunk geometry (referenced at baseTreeH)
+const trunkH = baseTreeH * 0.45;
+const trunkGeo = new THREE.CylinderGeometry(0.15, 0.28, trunkH, 8, 4);
+trunkGeo.translate(0, trunkH / 2, 0); // origin at base
+const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, metalness: 0.02 });
+const trunkInstanced = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCount);
+trunkInstanced.castShadow = true;
+trunkInstanced.receiveShadow = true;
+
+// Crown layer geometries (referenced at baseTreeH)
+const crownColors = [0x2d6b1e, 0x357a24, 0x3d8a2c, 0x2a5e1a];
+const crownBaseY = trunkH * 0.7;
+const crownLayerDefs = [
+  { r: baseTreeH * 0.25, h: baseTreeH * 0.35, y: crownBaseY + baseTreeH * 0.12 },
+  { r: baseTreeH * 0.20, h: baseTreeH * 0.30, y: crownBaseY + baseTreeH * 0.22 },
+  { r: baseTreeH * 0.14, h: baseTreeH * 0.22, y: crownBaseY + baseTreeH * 0.30 },
+  { r: baseTreeH * 0.08, h: baseTreeH * 0.15, y: crownBaseY + baseTreeH * 0.35 },
+];
+
+const crownInstancedMeshes = crownLayerDefs.map((def, i) => {
+  const geo = new THREE.ConeGeometry(def.r, def.h, 10, 4);
+  geo.translate(0, def.y, 0); // bake Y position into geometry
+  const mat = new THREE.MeshStandardMaterial({ color: crownColors[i], roughness: 0.75, metalness: 0.02 });
+  const im = new THREE.InstancedMesh(geo, mat, treeCount);
+  im.castShadow = true;
+  im.receiveShadow = true;
+  scene.add(im);
+  return im;
+});
+
+// Set instance transforms
+const treeDummy = new THREE.Object3D();
+for (let i = 0; i < treeCount; i++) {
+  const t = treeData[i];
+  const s = t.h / baseTreeH;
+  treeDummy.position.set(t.x, 0, t.z);
+  treeDummy.scale.set(s, s, s);
+  treeDummy.rotation.set(0, t.rotY, t.rotZ);
+  treeDummy.updateMatrix();
+  trunkInstanced.setMatrixAt(i, treeDummy.matrix);
+  crownInstancedMeshes.forEach(ci => ci.setMatrixAt(i, treeDummy.matrix));
+}
+trunkInstanced.instanceMatrix.needsUpdate = true;
+crownInstancedMeshes.forEach(ci => ci.instanceMatrix.needsUpdate = true);
+scene.add(trunkInstanced);
 
 // ==================== ENVIRONMENT PROPS ====================
 
@@ -1647,7 +1851,7 @@ for (let c = 0; c < 5; c++) {
   addTrafficCone(50 + c * 0.8, -63);
 }
 
-// ==================== HEDGES & BUSHES ====================
+// ==================== HEDGES & BUSHES (InstancedMesh for bushes) ====================
 function addHedge(x, z, w, d, h) {
   const hedgeGeo = new THREE.BoxGeometry(w, h, d);
   const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x3d6b2e, roughness: 0.75, metalness: 0.02 });
@@ -1657,34 +1861,56 @@ function addHedge(x, z, w, d, h) {
   hedge.receiveShadow = true;
   scene.add(hedge);
 }
-// Hedges around buildings
+// Hedges around buildings (only 3, keep as individual meshes)
 addHedge(25, -47, 14, 0.6, 1.2);
 addHedge(65, -47, 14, 0.6, 1.2);
 addHedge(-5, -22, 10, 0.6, 1.0);
 
-// More varied bushes (half-spheres)
-function addBush(x, z, r) {
-  const bushGeo = new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-  const bushMat = new THREE.MeshStandardMaterial({ color: [0x3d6b2e, 0x4a7d38, 0x2d5a1e][Math.floor(Math.random() * 3)], roughness: 0.75, metalness: 0.02 });
-  const bush = new THREE.Mesh(bushGeo, bushMat);
-  bush.position.set(x, 0, z);
-  bush.castShadow = true;
-  bush.receiveShadow = true;
-  scene.add(bush);
-}
+// Bushes: collect data then batch-create InstancedMesh
+const bushData = [];
+const bushColors = [0x3d6b2e, 0x4a7d38, 0x2d5a1e];
+
 for (let b = 0; b < 30; b++) {
   const bx = (Math.random() - 0.5) * 140;
   const bz = (Math.random() - 0.5) * 140;
   if (Math.abs(bx) < 4 && Math.abs(bz) < 4) continue;
   if (bx > 36 && bx < 54 && bz < -40 && bz > -48) continue;
-  addBush(bx, bz, 0.4 + Math.random() * 0.9);
+  bushData.push({
+    x: bx, z: bz,
+    r: 0.4 + Math.random() * 0.9,
+    color: bushColors[Math.floor(Math.random() * 3)],
+  });
 }
+
+const bushCount = bushData.length;
+const baseBushR = 0.65;
+const bushGeo = new THREE.SphereGeometry(baseBushR, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+const bushMat = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.02 });
+const bushInstanced = new THREE.InstancedMesh(bushGeo, bushMat, bushCount);
+bushInstanced.castShadow = true;
+bushInstanced.receiveShadow = true;
+
+const bushDummy = new THREE.Object3D();
+for (let i = 0; i < bushCount; i++) {
+  const b = bushData[i];
+  bushDummy.position.set(b.x, 0, b.z);
+  bushDummy.scale.setScalar(b.r / baseBushR);
+  bushDummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+  bushDummy.updateMatrix();
+  bushInstanced.setMatrixAt(i, bushDummy.matrix);
+  // Per-instance color (Three.js 0.170+)
+  bushInstanced.setColorAt(i, new THREE.Color(b.color));
+}
+bushInstanced.instanceMatrix.needsUpdate = true;
+if (bushInstanced.instanceColor) bushInstanced.instanceColor.needsUpdate = true;
+scene.add(bushInstanced);
 
 // ==================== GRASS TUFTS ====================
 function addGrassTuft(x, z, height) {
   const group = new THREE.Group();
   const grassColors = [0x4a8c3f, 0x559944, 0x3d7035, 0x60a050];
-  for (let g = 0; g < 5; g++) {
+  // Reduced from 5 to 3 blades per tuft (saves ~160 draw calls across 80 tufts)
+  for (let g = 0; g < 3; g++) {
     const bladeGeo = new THREE.CylinderGeometry(0.015, 0.025, height * (0.6 + Math.random() * 0.4), 4);
     const bladeMat = new THREE.MeshStandardMaterial({ color: grassColors[Math.floor(Math.random() * 4)], roughness: 0.8, metalness: 0.0 });
     const blade = new THREE.Mesh(bladeGeo, bladeMat);
@@ -2133,28 +2359,54 @@ droneGroup.position.set(0, 0, 0);
 droneGroup.scale.set(3.0, 3.0, 3.0);
 scene.add(droneGroup);
 
-// ==================== PROP WASH PARTICLE SYSTEM ====================
+// ==================== PROP WASH PARTICLE SYSTEM (Points-based) ====================
+// Single Points object replaces 200 individual meshes (200 → 1 draw call)
 const MAX_PARTICLES = 200;
-const particlesPool = [];
-const particleGeo = new THREE.PlaneGeometry(0.15, 0.15);
+const particlePositions = new Float32Array(MAX_PARTICLES * 3);
+const particleSizes = new Float32Array(MAX_PARTICLES);
+const particleAlphas = new Float32Array(MAX_PARTICLES); // controlled via geometry attr
+
+// Particle state arrays (pool)
+const particleLife = new Float32Array(MAX_PARTICLES);
+const particleMaxLife = new Float32Array(MAX_PARTICLES);
+const particleVelX = new Float32Array(MAX_PARTICLES);
+const particleVelY = new Float32Array(MAX_PARTICLES);
+const particleVelZ = new Float32Array(MAX_PARTICLES);
+
+// Initialize positions off-screen
+particlePositions.fill(-9999);
+particleSizes.fill(0.15);
+particleAlphas.fill(0);
+
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+particleGeo.setAttribute('size', new THREE.BufferAttribute(particleSizes, 1));
+particleGeo.setAttribute('alpha', new THREE.BufferAttribute(particleAlphas, 1));
+
+// Custom ShaderMaterial for alpha-per-particle (PointsMaterial doesn't support per-particle alpha easily)
+// Alternative: use PointsMaterial with global opacity, adjust vertex colors for fade
+const particleColors = new Float32Array(MAX_PARTICLES * 3);
 for (let i = 0; i < MAX_PARTICLES; i++) {
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xcccccc,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const particle = new THREE.Mesh(particleGeo, mat);
-  particle.visible = false;
-  particle.renderOrder = 10;
-  particle.userData = {
-    life: 0, maxLife: 0,
-    vx: 0, vy: 0, vz: 0,
-  };
-  scene.add(particle);
-  particlesPool.push(particle);
+  particleColors[i * 3] = 0.8;
+  particleColors[i * 3 + 1] = 0.8;
+  particleColors[i * 3 + 2] = 0.8;
 }
+particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+
+const particleMat = new THREE.PointsMaterial({
+  size: 0.15,
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.5,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+  sizeAttenuation: true,
+});
+const particlePoints = new THREE.Points(particleGeo, particleMat);
+particlePoints.renderOrder = 10;
+particlePoints.frustumCulled = false;
+scene.add(particlePoints);
+
 let particleIndex = 0;
 
 function emitPropWash(dronePos, heading, speed, delta) {
@@ -2163,7 +2415,7 @@ function emitPropWash(dronePos, heading, speed, delta) {
   const headingRad = heading * Math.PI / 180;
 
   for (let e = 0; e < emitRate; e++) {
-    const p = particlesPool[particleIndex];
+    const idx = particleIndex;
     particleIndex = (particleIndex + 1) % MAX_PARTICLES;
 
     // Spawn below drone, spread outward
@@ -2172,54 +2424,69 @@ function emitPropWash(dronePos, heading, speed, delta) {
     const sx = dronePos.x + Math.cos(spreadAngle) * spreadDist;
     const sz = dronePos.z + Math.sin(spreadAngle) * spreadDist;
 
-    p.position.set(sx, dronePos.y - 0.3, sz);
-    p.visible = true;
-    p.material.opacity = 0.5 + Math.random() * 0.3;
+    particlePositions[idx * 3] = sx;
+    particlePositions[idx * 3 + 1] = dronePos.y - 0.3;
+    particlePositions[idx * 3 + 2] = sz;
+    particleSizes[idx] = 0.1 + Math.random() * 0.15;
+    // Store alpha in color intensity (0.5-0.8)
+    const alpha = 0.5 + Math.random() * 0.3;
+    particleColors[idx * 3] = 0.8 * alpha;
+    particleColors[idx * 3 + 1] = 0.8 * alpha;
+    particleColors[idx * 3 + 2] = 0.8 * alpha;
 
     // Velocity: mostly downward + outward
     const outAngle = headingRad + (Math.random() - 0.5) * 1.5;
     const outSpeed = 1.5 + Math.random() * 3;
-    p.userData.vx = Math.sin(outAngle) * outSpeed;
-    p.userData.vy = -(2 + Math.random() * 4);
-    p.userData.vz = -Math.cos(outAngle) * outSpeed;
-    p.userData.life = 0.4 + Math.random() * 0.8;
-    p.userData.maxLife = p.userData.life;
+    particleVelX[idx] = Math.sin(outAngle) * outSpeed;
+    particleVelY[idx] = -(2 + Math.random() * 4);
+    particleVelZ[idx] = -Math.cos(outAngle) * outSpeed;
+    particleLife[idx] = 0.4 + Math.random() * 0.8;
+    particleMaxLife[idx] = particleLife[idx];
   }
 }
 
 function updateParticles(delta) {
-  for (const p of particlesPool) {
-    if (!p.visible) continue;
-    p.userData.life -= delta;
-    if (p.userData.life <= 0) {
-      p.visible = false;
-      p.material.opacity = 0;
+  let needsUpdate = false;
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    if (particleLife[i] <= 0) continue;
+    particleLife[i] -= delta;
+    if (particleLife[i] <= 0) {
+      // Move offscreen
+      particlePositions[i * 3 + 1] = -9999;
+      particleColors[i * 3] = 0;
+      particleColors[i * 3 + 1] = 0;
+      particleColors[i * 3 + 2] = 0;
+      needsUpdate = true;
       continue;
     }
-    const frac = p.userData.life / p.userData.maxLife;
-    p.material.opacity = frac * 0.6;
-    p.position.x += p.userData.vx * delta;
-    p.position.y += p.userData.vy * delta;
-    p.position.z += p.userData.vz * delta;
+    const frac = particleLife[i] / particleMaxLife[i];
+    const alpha = frac * 0.6;
+    particleColors[i * 3] = 0.8 * alpha;
+    particleColors[i * 3 + 1] = 0.8 * alpha;
+    particleColors[i * 3 + 2] = 0.8 * alpha;
+    particlePositions[i * 3] += particleVelX[i] * delta;
+    particlePositions[i * 3 + 1] += particleVelY[i] * delta;
+    particlePositions[i * 3 + 2] += particleVelZ[i] * delta;
     // Slow down
-    p.userData.vx *= 0.96;
-    p.userData.vy *= 0.96;
-    p.userData.vz *= 0.96;
+    particleVelX[i] *= 0.96;
+    particleVelY[i] *= 0.96;
+    particleVelZ[i] *= 0.96;
+    needsUpdate = true;
+  }
+  if (needsUpdate) {
+    particleGeo.attributes.position.needsUpdate = true;
+    particleGeo.attributes.color.needsUpdate = true;
   }
 }
 
-// ==================== MINI-MAP RENDERER ====================
+// ==================== MINI-MAP RENDERER (with pre-rendering) ====================
 const minimapCanvas = document.getElementById('minimap-canvas');
 const minimapCtx = minimapCanvas.getContext('2d');
 const MM_SIZE = 180;
 const MM_CENTER = MM_SIZE / 2;
 
-function worldToMinimap(wx, wz, bounds) {
-  const scale = MM_SIZE / (bounds.max - bounds.min);
-  const mx = (wx - bounds.min) * scale;
-  const my = (wz - bounds.min) * scale;
-  return { x: mx, y: my };
-}
+// Offscreen canvas for static elements (rendered once)
+let minimapStaticCache = null;
 
 let cachedBounds = null;
 function getWorldBounds() {
@@ -2242,18 +2509,20 @@ function getWorldBounds() {
   return cachedBounds;
 }
 
-function renderMinimap(currentData) {
-  const ctx = minimapCtx;
-  const bounds = getWorldBounds();
-  const toMM = (wx, wz) => {
-    const s = MM_SIZE / bounds.range;
-    return {
-      x: (wx - bounds.min) * s,
-      y: MM_SIZE - (wz - bounds.min) * s,
-    };
+function toMM(wx, wz, bounds) {
+  const s = MM_SIZE / bounds.range;
+  return {
+    x: (wx - bounds.min) * s,
+    y: MM_SIZE - (wz - bounds.min) * s,
   };
+}
 
-  ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+function prerenderMinimapStatic() {
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = MM_SIZE;
+  offCanvas.height = MM_SIZE;
+  const ctx = offCanvas.getContext('2d');
+  const bounds = getWorldBounds();
 
   // Background
   ctx.fillStyle = '#3d6b35';
@@ -2262,63 +2531,70 @@ function renderMinimap(currentData) {
   // Roads
   ctx.strokeStyle = '#555555';
   ctx.lineWidth = 2;
-  // Main N-S road
-  const r1a = toMM(34, -85);
-  const r1b = toMM(34, 10);
-  ctx.beginPath(); ctx.moveTo(r1a.x, r1a.y); ctx.lineTo(r1b.x, r1b.y); ctx.stroke();
-  const r2a = toMM(50, -85);
-  const r2b = toMM(50, 10);
-  ctx.beginPath(); ctx.moveTo(r2a.x, r2a.y); ctx.lineTo(r2b.x, r2b.y); ctx.stroke();
-  // Cross road
-  const r3a = toMM(20, -50);
-  const r3b = toMM(65, -50);
-  ctx.beginPath(); ctx.moveTo(r3a.x, r3a.y); ctx.lineTo(r3b.x, r3b.y); ctx.stroke();
-  const r4a = toMM(20, -38);
-  const r4b = toMM(65, -38);
-  ctx.beginPath(); ctx.moveTo(r4a.x, r4a.y); ctx.lineTo(r4b.x, r4b.y); ctx.stroke();
+  const roads = [
+    [34, -85, 34, 10], [50, -85, 50, 10],
+    [20, -50, 65, -50], [20, -38, 65, -38],
+  ];
+  roads.forEach(([x1, z1, x2, z2]) => {
+    const a = toMM(x1, z1, bounds);
+    const b = toMM(x2, z2, bounds);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  });
 
   // Parking lot
-  const pl = toMM(13, -57);
+  const pl = toMM(13, -57, bounds);
   ctx.fillStyle = '#555558';
   ctx.fillRect(pl.x, pl.y, 15, 6);
 
-  // Buildings (simple footprints)
+  // Buildings
   const buildings = [
-    { x: 40, z: -53.5, w: 10, d: 7 },
-    { x: 55, z: -50.5, w: 7, d: 5 },
-    { x: 32, z: -58, w: 12, d: 6 },
-    { x: 47, z: -63, w: 6, d: 6 },
-    { x: -10, z: -27.5, w: 8, d: 5 },
-    { x: -18, z: -23, w: 6, d: 6 },
+    { x: 40, z: -53.5, w: 10, d: 7 }, { x: 55, z: -50.5, w: 7, d: 5 },
+    { x: 32, z: -58, w: 12, d: 6 }, { x: 47, z: -63, w: 6, d: 6 },
+    { x: -10, z: -27.5, w: 8, d: 5 }, { x: -18, z: -23, w: 6, d: 6 },
     { x: -5, z: -31.5, w: 5, d: 4 },
-    { x: 10, z: 8, w: 7, d: 5 },
-    { x: 18, z: 13, w: 5, d: 4 },
+    { x: 10, z: 8, w: 7, d: 5 }, { x: 18, z: 13, w: 5, d: 4 },
     { x: 5, z: 16.5, w: 6, d: 5 },
   ];
   ctx.fillStyle = '#888888';
   buildings.forEach(b => {
-    const pos = toMM(b.x - b.w / 2, b.z - b.d / 2);
+    const pos = toMM(b.x - b.w / 2, b.z - b.d / 2, bounds);
     const ww = b.w * MM_SIZE / bounds.range;
     const wh = b.d * MM_SIZE / bounds.range;
     ctx.fillRect(pos.x, pos.y, ww, wh);
   });
+
+  minimapStaticCache = offCanvas;
+}
+
+function renderMinimap(currentData) {
+  const ctx = minimapCtx;
+  const bounds = getWorldBounds();
+
+  // Use pre-rendered static layer if available (draw once)
+  if (!minimapStaticCache) {
+    prerenderMinimapStatic();
+  }
+  ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+  ctx.drawImage(minimapStaticCache, 0, 0);
+
+  // --- Dynamic elements ---
 
   // Trajectory line
   if (state.flightData.length > 1) {
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    const first = toMM(state.flightData[0].x, state.flightData[0].z);
+    const first = toMM(state.flightData[0].x, state.flightData[0].z, bounds);
     ctx.moveTo(first.x, first.y);
     for (let i = 1; i < state.flightData.length; i += 3) {
-      const pt = toMM(state.flightData[i].x, state.flightData[i].z);
+      const pt = toMM(state.flightData[i].x, state.flightData[i].z, bounds);
       ctx.lineTo(pt.x, pt.y);
     }
     ctx.stroke();
   }
 
   // Home point
-  const home = toMM(0, 0);
+  const home = toMM(0, 0, bounds);
   ctx.fillStyle = '#4caf50';
   ctx.beginPath(); ctx.arc(home.x, home.y, 4, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
@@ -2326,8 +2602,7 @@ function renderMinimap(currentData) {
 
   // Drone position
   if (currentData) {
-    const dp = toMM(currentData.x, currentData.z);
-    // Heading triangle
+    const dp = toMM(currentData.x, currentData.z, bounds);
     const hdgRad = currentData.heading * Math.PI / 180;
     ctx.save();
     ctx.translate(dp.x, dp.y);
@@ -2718,30 +2993,35 @@ function loadFlightData(data) {
   const t0 = state.flightData[0].t;
   state.flightData.forEach(p => p.t -= t0);
   state.duration = state.flightData[state.flightData.length - 1].t;
-  state.batteryDrainRate = 100 / (state.duration * 1.8 + 60); // drain over flight + some buffer
+
+  // Physics-based battery model
+  const stats = computeFlightStats(state.flightData);
+  const batt = computeBatteryDrainRate(state.duration, stats.maxSpeed, stats.maxAlt);
+  state.batteryDrainRate = batt.drainPerSecond;
+  state._stats = stats;
+
   state.playbackTime = 0;
+  updateStatsUI(stats);
+  applyLoadedData();
+}
 
-  // Compute stats
-  let maxAlt = 0, maxSpeed = 0, totalDist = 0;
-  for (let i = 0; i < state.flightData.length; i++) {
-    const p = state.flightData[i];
-    if (p.alt > maxAlt) maxAlt = p.alt;
-    if (p.speed > maxSpeed) maxSpeed = p.speed;
-    if (i > 0) {
-      const dx = p.x - state.flightData[i-1].x;
-      const dy = p.y - state.flightData[i-1].y;
-      const dz = p.z - state.flightData[i-1].z;
-      totalDist += Math.sqrt(dx*dx + dy*dy + dz*dz);
-    }
-  }
-  document.getElementById('stat-distance').textContent = Math.round(totalDist) + ' m';
-  document.getElementById('stat-max-alt').textContent = Math.round(maxAlt) + ' m';
-  document.getElementById('stat-max-speed').textContent = maxSpeed.toFixed(1) + ' m/s';
-  document.getElementById('stat-points').textContent = state.flightData.length;
-  state._stats = { maxAlt, maxSpeed, totalDist };
+// Variant called from Web Worker (data already normalized)
+function loadFlightDataFromWorker(normalizedPoints, stats) {
+  state.flightData = normalizedPoints;
+  state.duration = normalizedPoints[normalizedPoints.length - 1].t;
+  const batt = computeBatteryDrainRate(state.duration, stats.maxSpeed, stats.maxAlt);
+  state.batteryDrainRate = batt.drainPerSecond;
+  state.playbackTime = 0;
+  state._stats = stats;
+  updateStatsUI(stats);
+  applyLoadedData();
+}
 
+function applyLoadedData() {
   createTrajectory(state.flightData);
   cachedBounds = null; // reset minimap
+  // Reset minimap pre-render cache
+  minimapStaticCache = null;
   updatePlaybackUI();
   updateTelemetry(sampleFlightData(0), 0);
   updateDronePosition(sampleFlightData(0));
@@ -2762,16 +3042,122 @@ function loadFlightData(data) {
   // Auto-play imported data too
   state.isPlaying = true;
   updatePlaybackUI();
+  updateURLState();
+}
+
+// ==================== CSV PARSER ====================
+function parseCSVText(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return null;
+
+  const firstLine = lines[0].toLowerCase();
+  const hasHeader = /[a-z]/.test(firstLine) && !/^-?[\d.]+/.test(firstLine.split(',')[0].trim());
+  const headers = hasHeader ? lines[0].split(',').map(h => h.trim().toLowerCase()) : null;
+  const dataStart = hasHeader ? 1 : 0;
+
+  const fieldMap = {
+    t: ['t', 'time', 'timestamp', 'time_ms'],
+    lat: ['lat', 'latitude', 'gps_lat'],
+    lng: ['lng', 'lon', 'long', 'longitude', 'gps_lng', 'gps_lon'],
+    alt: ['alt', 'altitude', 'alt_m', 'height', 'rel_alt', 'relative_altitude'],
+    heading: ['heading', 'yaw', 'hdg', 'course'],
+    speed: ['speed', 'gs', 'groundspeed', 'velocity', 'spd'],
+    pitch: ['pitch', 'pitch_angle'],
+    roll: ['roll', 'roll_angle', 'bank'],
+  };
+
+  function findCol(fieldNames) {
+    if (!headers) return -1;
+    for (const n of fieldNames) {
+      const idx = headers.indexOf(n);
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
+  let colMap;
+  if (headers) {
+    colMap = {};
+    for (const [k, names] of Object.entries(fieldMap)) colMap[k] = findCol(names);
+  } else {
+    colMap = { t: 0, lat: 1, lng: 2, alt: 3, heading: 4, speed: 5, pitch: 6, roll: 7 };
+  }
+
+  const points = [];
+  for (let i = dataStart; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('#')) continue;
+    const cols = line.split(',').map(c => c.trim());
+    if (cols.length < 2) continue;
+    const get = (key, def) => {
+      const idx = colMap[key];
+      if (idx === undefined || idx === -1 || idx >= cols.length) return def;
+      const v = parseFloat(cols[idx]);
+      return isNaN(v) ? def : v;
+    };
+    points.push({
+      t: get('t', i - dataStart),
+      lat: get('lat', 0), lng: get('lng', 0), alt: get('alt', 0),
+      heading: get('heading', 0), speed: get('speed', 0),
+      pitch: get('pitch', 0), roll: get('roll', 0),
+    });
+  }
+  return points.length > 1 ? points : null;
+}
+
+// ==================== WEB WORKER SETUP ====================
+let dataWorker = null;
+function getDataWorker() {
+  if (!dataWorker) {
+    try {
+      dataWorker = new Worker('flight-data-worker.js');
+    } catch (e) {
+      // Fallback: worker file not available (e.g., file:// protocol)
+      return null;
+    }
+  }
+  return dataWorker;
 }
 
 function handleFileImport(file) {
+  const isCSV = /\.csv$/i.test(file.name);
   const reader = new FileReader();
   reader.onload = (e) => {
+    const text = e.target.result;
+
+    // Try Web Worker first for large files (> 100KB)
+    const worker = text.length > 100000 ? getDataWorker() : null;
+    if (worker) {
+      document.getElementById('loading-overlay').style.display = 'flex';
+      document.getElementById('loading-overlay').classList.remove('fade-out');
+      document.getElementById('loading-text').textContent = 'Processing flight data...';
+      worker.onmessage = (ev) => {
+        document.getElementById('loading-overlay').classList.add('fade-out');
+        if (ev.data.type === 'result') {
+          loadFlightDataFromWorker(ev.data.points, ev.data.stats);
+        } else if (ev.data.type === 'error') {
+          alert('Parse error: ' + ev.data.message);
+        }
+      };
+      worker.postMessage({ type: 'parse', raw: text, fileName: file.name });
+      return;
+    }
+
+    // Small file: parse in main thread
     try {
-      const data = JSON.parse(e.target.result);
+      let data;
+      if (isCSV) {
+        data = parseCSVText(text);
+        if (!data) {
+          alert('CSV 解析失败 — 无法识别格式 / Failed to parse CSV — unrecognized format');
+          return;
+        }
+      } else {
+        data = JSON.parse(text);
+      }
       loadFlightData(data);
     } catch (err) {
-      alert('JSON 解析失败 / Failed to parse JSON: ' + err.message);
+      alert('Parse error: ' + err.message);
     }
   };
   reader.readAsText(file);
@@ -2896,26 +3282,13 @@ function init() {
   // Generate demo data
   state.flightData = generateDemoData();
   state.duration = state.flightData[state.flightData.length - 1].t;
-  state.batteryDrainRate = 100 / (state.duration * 1.8 + 60);
 
-  // Compute flight stats
-  let maxAlt = 0, maxSpeed = 0, totalDist = 0;
-  for (let i = 0; i < state.flightData.length; i++) {
-    const p = state.flightData[i];
-    if (p.alt > maxAlt) maxAlt = p.alt;
-    if (p.speed > maxSpeed) maxSpeed = p.speed;
-    if (i > 0) {
-      const dx = p.x - state.flightData[i-1].x;
-      const dy = p.y - state.flightData[i-1].y;
-      const dz = p.z - state.flightData[i-1].z;
-      totalDist += Math.sqrt(dx*dx + dy*dy + dz*dz);
-    }
-  }
-  document.getElementById('stat-distance').textContent = Math.round(totalDist) + ' m';
-  document.getElementById('stat-max-alt').textContent = Math.round(maxAlt) + ' m';
-  document.getElementById('stat-max-speed').textContent = maxSpeed.toFixed(1) + ' m/s';
-  document.getElementById('stat-points').textContent = state.flightData.length;
-  state._stats = { maxAlt, maxSpeed, totalDist };
+  // Physics-based battery model
+  const stats = computeFlightStats(state.flightData);
+  const batt = computeBatteryDrainRate(state.duration, stats.maxSpeed, stats.maxAlt);
+  state.batteryDrainRate = batt.drainPerSecond;
+  state._stats = stats;
+  updateStatsUI(stats);
 
   // Create trajectory
   createTrajectory(state.flightData);
@@ -2937,6 +3310,34 @@ function init() {
   // Auto-play for presentation
   state.isPlaying = true;
   updatePlaybackUI();
+
+  // Parse URL state (speed, loop, camera mode)
+  loadURLState();
+
+  // Hide loading overlay
+  document.getElementById('loading-overlay').classList.add('fade-out');
+  setTimeout(() => {
+    const lo = document.getElementById('loading-overlay');
+    if (lo) lo.style.display = 'none';
+  }, 500);
+
+  // Keyboard hint: auto-hide after first keypress
+  let kbHintHidden = false;
+  function hideKbHint() {
+    if (kbHintHidden) return;
+    kbHintHidden = true;
+    document.getElementById('kb-hint-bar').classList.add('hidden');
+  }
+  document.addEventListener('keydown', hideKbHint, { once: true });
+
+  // Mobile touch hints: show on touch devices, hide after first touch
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    const touchOverlay = document.getElementById('touch-hint-overlay');
+    touchOverlay.classList.add('show');
+    document.addEventListener('touchstart', () => {
+      touchOverlay.classList.remove('show');
+    }, { once: true });
+  }
 }
 
 // ==================== ANIMATION LOOP ====================
@@ -3031,6 +3432,54 @@ function animate() {
 
   renderer.render(scene, camera);
 }
+
+// ==================== URL STATE MANAGEMENT ====================
+function loadURLState() {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const speed = parseFloat(params.get('speed'));
+  if (speed && [0.25, 0.5, 1.0, 2.0, 4.0, 8.0].includes(speed)) {
+    setSpeed(speed);
+  }
+  if (params.get('loop') === '1') {
+    state.loop = true;
+    document.getElementById('btn-loop').classList.add('active');
+  }
+  const cam = params.get('cam');
+  if (cam && ['free', 'follow', 'topdown'].includes(cam)) {
+    setCameraMode(cam);
+  }
+}
+
+function updateURLState() {
+  const params = new URLSearchParams();
+  if (state.playbackSpeed !== 1.0) params.set('speed', state.playbackSpeed);
+  if (state.loop) params.set('loop', '1');
+  if (state.camMode !== 'free') params.set('cam', state.camMode);
+  const hash = params.toString();
+  // Use replaceState to avoid polluting history
+  const url = hash ? '#' + hash : window.location.pathname;
+  try { history.replaceState(null, '', url); } catch (e) { /* ignore */ }
+}
+
+// Hook URL updates into existing state changes
+const _origSetSpeed = setSpeed;
+setSpeed = function(s) {
+  _origSetSpeed(s);
+  updateURLState();
+};
+const _origSetCameraMode = setCameraMode;
+setCameraMode = function(m) {
+  _origSetCameraMode(m);
+  updateURLState();
+};
+// Update URL on loop toggle
+document.addEventListener('DOMContentLoaded', () => {
+  const loopBtn = document.getElementById('btn-loop');
+  if (loopBtn) {
+    const origClick = loopBtn.onclick;
+    loopBtn.addEventListener('click', () => setTimeout(updateURLState, 50));
+  }
+});
 
 // ==================== START ====================
 init();
