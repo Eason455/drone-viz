@@ -1402,32 +1402,59 @@ function addFenceSection(x, z, rotY, length) {
 // Fence along road near home
 addFenceSection(-2, 10, 0, 20);
 
-// --- Flower beds (small colored spheres near park) ---
-function addFlowerBed(cx, cz, count, radius) {
-  const colors = [0xff6699, 0xffcc33, 0xff6633, 0xff99aa, 0xffff66, 0xff3366];
-  for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * radius;
-    const x = cx + Math.cos(angle) * dist;
-    const z = cz + Math.sin(angle) * dist;
-
-    // Stem
-    const stemGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.3, 4);
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x338833, roughness: 0.8 });
-    const stem = new THREE.Mesh(stemGeo, stemMat);
-    stem.position.set(x, 0.15, z);
-    scene.add(stem);
-
-    // Flower
-    const petalGeo = new THREE.SphereGeometry(0.07, 4, 3);
-    const petalMat = new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random() * colors.length)], roughness: 0.5 });
-    const petal = new THREE.Mesh(petalGeo, petalMat);
-    petal.position.set(x, 0.35, z);
-    scene.add(petal);
+// --- Flower beds (InstancedMesh: stems + petals → 2 draw calls) ---
+const flowerColors = [0xff6699, 0xffcc33, 0xff6633, 0xff99aa, 0xffff66, 0xff3366];
+const flowerStemData = [];
+const flowerPetalData = [];
+{
+  function collectFlowers(cx, cz, count, radius) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * radius;
+      const x = cx + Math.cos(angle) * dist;
+      const z = cz + Math.sin(angle) * dist;
+      flowerStemData.push({ x, y: 0.15, z });
+      flowerPetalData.push({
+        x, y: 0.35, z,
+        color: flowerColors[Math.floor(Math.random() * flowerColors.length)],
+      });
+    }
   }
+  collectFlowers(-10, -4, 25, 3);
+  collectFlowers(8, -4, 20, 2.5);
 }
-addFlowerBed(-10, -4, 25, 3);
-addFlowerBed(8, -4, 20, 2.5);
+
+// Batch-create stems InstancedMesh
+const stemGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.3, 4);
+stemGeo.translate(0, 0.15, 0); // origin at base
+const stemMat = new THREE.MeshStandardMaterial({ color: 0x338833, roughness: 0.8 });
+const stemInstanced = new THREE.InstancedMesh(stemGeo, stemMat, flowerStemData.length);
+const stemDummy = new THREE.Object3D();
+for (let i = 0; i < flowerStemData.length; i++) {
+  stemDummy.position.set(flowerStemData[i].x, 0, flowerStemData[i].z);
+  stemDummy.scale.setScalar(1);
+  stemDummy.updateMatrix();
+  stemInstanced.setMatrixAt(i, stemDummy.matrix);
+}
+stemInstanced.instanceMatrix.needsUpdate = true;
+scene.add(stemInstanced);
+
+// Batch-create petals InstancedMesh (with per-instance color)
+const petalGeo = new THREE.SphereGeometry(0.07, 4, 3);
+petalGeo.translate(0, 0.35, 0); // origin at stem top
+const petalMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
+const petalInstanced = new THREE.InstancedMesh(petalGeo, petalMat, flowerPetalData.length);
+const petalDummy = new THREE.Object3D();
+for (let i = 0; i < flowerPetalData.length; i++) {
+  petalDummy.position.set(flowerPetalData[i].x, 0, flowerPetalData[i].z);
+  petalDummy.scale.setScalar(1);
+  petalDummy.updateMatrix();
+  petalInstanced.setMatrixAt(i, petalDummy.matrix);
+  petalInstanced.setColorAt(i, new THREE.Color(flowerPetalData[i].color));
+}
+petalInstanced.instanceMatrix.needsUpdate = true;
+if (petalInstanced.instanceColor) petalInstanced.instanceColor.needsUpdate = true;
+scene.add(petalInstanced);
 
 // --- Power/utility poles ---
 function addUtilityPole(x, z) {
@@ -1905,37 +1932,54 @@ bushInstanced.instanceMatrix.needsUpdate = true;
 if (bushInstanced.instanceColor) bushInstanced.instanceColor.needsUpdate = true;
 scene.add(bushInstanced);
 
-// ==================== GRASS TUFTS ====================
-function addGrassTuft(x, z, height) {
-  const group = new THREE.Group();
-  const grassColors = [0x4a8c3f, 0x559944, 0x3d7035, 0x60a050];
-  // Reduced from 5 to 3 blades per tuft (saves ~160 draw calls across 80 tufts)
-  for (let g = 0; g < 3; g++) {
-    const bladeGeo = new THREE.CylinderGeometry(0.015, 0.025, height * (0.6 + Math.random() * 0.4), 4);
-    const bladeMat = new THREE.MeshStandardMaterial({ color: grassColors[Math.floor(Math.random() * 4)], roughness: 0.8, metalness: 0.0 });
-    const blade = new THREE.Mesh(bladeGeo, bladeMat);
-    blade.position.set(
-      (Math.random() - 0.5) * 0.25,
-      height * 0.3,
-      (Math.random() - 0.5) * 0.25
-    );
-    blade.rotation.x = (Math.random() - 0.5) * 0.4;
-    blade.rotation.z = (Math.random() - 0.5) * 0.4;
-    group.add(blade);
-  }
-  group.position.set(x, 0, z);
-  scene.add(group);
-}
+// ==================== GRASS TUFTS (InstancedMesh: 240 blades → 1 draw call) ====================
+const grassColors = [0x4a8c3f, 0x559944, 0x3d7035, 0x60a050];
+const grassBladeData = [];
+const BASE_BLADE_H = 0.55; // reference height for scaling
 
-// Dense grass patches away from roads
+// Collect blade positions and parameters
 for (let g = 0; g < 80; g++) {
   const gx = (Math.random() - 0.5) * 150;
   const gz = (Math.random() - 0.5) * 150;
   if (Math.abs(gx) < 6 && Math.abs(gz) < 6) continue;
   if (Math.abs(gx - 42) < 8 && gz < -10 && gz > -90) continue;
   if (Math.abs(gx - 38) < 8 && gz < -38 && gz > -50) continue;
-  addGrassTuft(gx, gz, 0.3 + Math.random() * 0.7);
+  const tuftH = 0.3 + Math.random() * 0.7;
+  for (let b = 0; b < 3; b++) {
+    const bladeH = tuftH * (0.6 + Math.random() * 0.4);
+    grassBladeData.push({
+      x: gx + (Math.random() - 0.5) * 0.25,
+      y: tuftH * 0.3,
+      z: gz + (Math.random() - 0.5) * 0.25,
+      rotX: (Math.random() - 0.5) * 0.4,
+      rotZ: (Math.random() - 0.5) * 0.4,
+      scaleY: bladeH / BASE_BLADE_H,
+      color: grassColors[Math.floor(Math.random() * 4)],
+    });
+  }
 }
+
+// Batch-create single InstancedMesh for all grass blades
+const grassBladeGeo = new THREE.CylinderGeometry(0.015, 0.025, BASE_BLADE_H, 4);
+grassBladeGeo.translate(0, BASE_BLADE_H / 2, 0); // origin at base
+const grassBladeMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0.0 });
+const grassInstanced = new THREE.InstancedMesh(grassBladeGeo, grassBladeMat, grassBladeData.length);
+grassInstanced.castShadow = true;
+grassInstanced.receiveShadow = true;
+
+const grassDummy = new THREE.Object3D();
+for (let i = 0; i < grassBladeData.length; i++) {
+  const bd = grassBladeData[i];
+  grassDummy.position.set(bd.x, bd.y, bd.z);
+  grassDummy.rotation.set(bd.rotX, 0, bd.rotZ);
+  grassDummy.scale.set(1, bd.scaleY, 1);
+  grassDummy.updateMatrix();
+  grassInstanced.setMatrixAt(i, grassDummy.matrix);
+  grassInstanced.setColorAt(i, new THREE.Color(bd.color));
+}
+grassInstanced.instanceMatrix.needsUpdate = true;
+if (grassInstanced.instanceColor) grassInstanced.instanceColor.needsUpdate = true;
+scene.add(grassInstanced);
 
 // ==================== BILLBOARD ====================
 (function() {
