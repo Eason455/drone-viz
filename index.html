@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1d23">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231a1d23'/><polygon points='16,4 22,28 16,22 10,28' fill='%234da6ff'/></svg>">
 <title>无人机飞行轨迹可视化 | Drone Flight Trajectory</title>
 <style>
 /* ========== RESET & BASE ========== */
@@ -210,6 +215,70 @@ a { color: var(--accent); }
 #drop-overlay.show { display: flex; }
 #drop-text { font-size: 1.5rem; color: var(--accent); font-weight: 600; }
 
+/* ========== IMPORT PROMPT (shown when no user data loaded) ========== */
+#import-prompt {
+  position: fixed; inset: 0; z-index: 90; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+#import-prompt.hidden { display: none; }
+#import-prompt-card {
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: 2px dashed var(--panel-border);
+  border-radius: 16px;
+  padding: 32px 40px;
+  text-align: center;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  max-width: 400px;
+  animation: promptPulse 3s ease-in-out infinite;
+}
+@keyframes promptPulse {
+  0%,100% { border-color: var(--panel-border); }
+  50% { border-color: var(--accent); }
+}
+#import-prompt-card h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 8px; }
+#import-prompt-card p { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5; }
+#import-prompt-card .btn-import {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 24px; border-radius: 8px; border: 1px solid var(--accent);
+  background: rgba(77,166,255,0.15); color: var(--accent);
+  cursor: pointer; font-size: 0.9rem; font-family: var(--font-ui);
+  transition: var(--transition);
+}
+#import-prompt-card .btn-import:hover { background: rgba(77,166,255,0.25); }
+#import-prompt-card .btn-dismiss {
+  display: block; margin: 12px auto 0; padding: 4px 12px;
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 0.7rem; font-family: var(--font-ui);
+}
+#import-prompt-card .btn-dismiss:hover { color: var(--text); }
+
+/* ========== TOAST NOTIFICATION ========== */
+#toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 250;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.8rem; color: var(--text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+#toast.error { border-color: var(--danger); color: var(--danger); }
+
+/* ========== SCREENSHOT BUTTON ========== */
+#btn-screenshot {
+  padding: 4px 12px; border-radius: 4px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.05); color: var(--text-dim); cursor: pointer;
+  font-size: 0.78rem; font-family: var(--font-ui); transition: var(--transition);
+}
+#btn-screenshot:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+
 /* ========== HELP MODAL ========== */
 #help-modal {
   position: fixed; inset: 0; z-index: 200;
@@ -326,7 +395,50 @@ a { color: var(--accent); }
   #playback-bar { padding: 6px 8px; gap: 4px; }
   .pb-btn { width: 28px; height: 28px; font-size: 0.7rem; }
   #btn-play { width: 34px; height: 34px; }
+  #mobile-cam-controls { display: flex; }
+  #minimap-wrap { width: 100px; height: 100px; bottom: 120px; }
+  #minimap-label { bottom: 224px; width: 100px; }
 }
+
+/* ========== MOBILE CAMERA CONTROLS ========== */
+#mobile-cam-controls {
+  display: none;
+  position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); z-index: 12;
+  gap: 8px; background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 20px; padding: 4px 6px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.mcam-btn {
+  width: 44px; height: 28px; border-radius: 16px; border: none;
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  font-size: 0.65rem; font-family: var(--font-ui); font-weight: 600;
+  transition: var(--transition);
+}
+.mcam-btn.active { background: rgba(77,166,255,0.2); color: var(--accent); }
+
+/* ========== FULLSCREEN MAP ========== */
+#map-fullscreen {
+  display: none; position: fixed; inset: 0; z-index: 300;
+  background: var(--bg);
+}
+#map-fullscreen.show { display: flex; flex-direction: column; }
+#map-fullscreen-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 18px; background: var(--panel-bg);
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 0.9rem; color: var(--text);
+}
+#map-close-btn {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 1.5rem; cursor: pointer; padding: 0 8px;
+}
+#map-close-btn:hover { color: var(--text); }
+#map-fullscreen-canvas-wrap {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+#map-fullscreen-canvas { max-width: 100%; max-height: 100%; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -355,12 +467,13 @@ a { color: var(--accent); }
 </div>
 
 <!-- Version badge -->
-<div id="version-badge">v2.0.0 — 2026-06-18</div>
+<div id="version-badge">v2.1.0 — 2026-06-21</div>
 
 <!-- UI Overlays -->
 <div id="top-bar">
   <div id="app-title"><span class="dot"></span>无人机飞行轨迹可视化</div>
   <div id="top-actions">
+    <button id="btn-screenshot" title="截图保存">Screenshot</button>
     <button id="help-btn" title="快捷键帮助">?</button>
     <button id="lang-btn">EN</button>
   </div>
@@ -427,6 +540,24 @@ a { color: var(--accent); }
 <div id="minimap-wrap"><canvas id="minimap-canvas" width="180" height="180"></canvas></div>
 <div id="minimap-label">Map</div>
 
+<!-- ========== MOBILE CAMERA CONTROLS ========== -->
+<div id="mobile-cam-controls">
+  <button class="mcam-btn active" data-cam="free">3D</button>
+  <button class="mcam-btn" data-cam="follow">Follow</button>
+  <button class="mcam-btn" data-cam="topdown">Top</button>
+</div>
+
+<!-- ========== FULLSCREEN MAP OVERLAY ========== -->
+<div id="map-fullscreen">
+  <div id="map-fullscreen-header">
+    <span>Flight Map</span>
+    <button id="map-close-btn">&times;</button>
+  </div>
+  <div id="map-fullscreen-canvas-wrap">
+    <canvas id="map-fullscreen-canvas"></canvas>
+  </div>
+</div>
+
 <div id="stats-overlay">
   <div class="stat-item"><div class="stat-val" id="stat-distance">0 m</div><div class="stat-lbl">总航程</div></div>
   <div class="stat-item"><div class="stat-val" id="stat-max-alt">0 m</div><div class="stat-lbl">最大高度</div></div>
@@ -454,6 +585,22 @@ a { color: var(--accent); }
 </div>
 
 <!-- Three.js canvas placeholder (created by JS) -->
+
+<!-- ========== IMPORT PROMPT OVERLAY ========== -->
+<div id="import-prompt">
+  <div id="import-prompt-card">
+    <h2 data-i18n="import_title">导入飞行数据</h2>
+    <p data-i18n="import_desc">拖放 JSON / CSV 飞行日志文件到这里<br>支持 DJI、ArduPilot 等常见格式</p>
+    <button class="btn-import" onclick="document.getElementById('file-input').click()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      选择文件
+    </button>
+    <button class="btn-dismiss" onclick="dismissImportPrompt()" data-i18n="import_dismiss">或查看演示数据</button>
+  </div>
+</div>
+
+<!-- ========== TOAST ========== -->
+<div id="toast"></div>
 
 <!-- file:// protocol warning -->
 <div id="file-warning" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999;background:#1a1d23;border:2px solid #ff9800;border-radius:12px;padding:24px 32px;text-align:center;max-width:480px;color:#e0e0e0;font-family:sans-serif;">
@@ -569,6 +716,9 @@ const i18n = {
     touch_hint: '单指旋转 / 双指平移缩放',
     loading: '加载中...',
     load_cdn_fallback: '切换CDN...',
+    import_title: '导入飞行数据',
+    import_desc: '拖放 JSON / CSV 飞行日志文件到这里\n支持 DJI、ArduPilot 等常见格式',
+    import_dismiss: '或查看演示数据',
   },
   en: {
     title: 'Drone Flight Trajectory',
@@ -604,6 +754,9 @@ const i18n = {
     touch_hint: '1-finger rotate / 2-finger pan zoom',
     loading: 'Loading...',
     load_cdn_fallback: 'Switching CDN...',
+    import_title: 'Import Flight Data',
+    import_desc: 'Drag & drop JSON / CSV flight log here\nSupports DJI, ArduPilot & more',
+    import_dismiss: 'or view demo flight',
   }
 };
 
@@ -640,7 +793,10 @@ const state = {
   loop: false,
   camMode: 'free', // 'free' | 'follow' | 'topdown'
   flightData: [],     // [{t, x, y, z, heading, speed, pitch, roll, lat, lng, alt}, ...]
+  flightData2: null,  // comparison trajectory
   curve: null,        // CatmullRomCurve3
+  curve2: null,       // comparison curve
+  showCompare: false,
   prevTime: 0,        // for delta calculation
   batteryDrainRate: 0, // % per second
 };
@@ -664,6 +820,16 @@ function headingToCompass(deg) {
   return dirs[idx];
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// Toast notification (replaces browser alert)
+let _toastTimer = null;
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type === 'error' ? 'show error' : 'show';
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show', 'error'); }, 3000);
+}
 
 // ==================== SHARED STATS COMPUTATION ====================
 function computeFlightStats(points) {
@@ -2893,6 +3059,11 @@ function updatePlaybackUI() {
   const pct = d > 0 ? (t / d) * 1000 : 0;
   document.getElementById('timeline').value = Math.round(pct);
   document.getElementById('btn-play').textContent = state.isPlaying ? '⏸' : '▶';
+  // Sync URL state for sharing (debounced: only every 2s)
+  if (!updatePlaybackUI._lastSync || Date.now() - updatePlaybackUI._lastSync > 2000) {
+    updatePlaybackUI._lastSync = Date.now();
+    updateURLState();
+  }
 }
 
 // ==================== CAMERA FOLLOW ====================
@@ -2961,6 +3132,82 @@ function setCameraMode(mode) {
   }
 }
 
+// ==================== IMPORT PROMPT ====================
+function dismissImportPrompt() {
+  document.getElementById('import-prompt').classList.add('hidden');
+}
+function showImportPrompt() {
+  document.getElementById('import-prompt').classList.remove('hidden');
+}
+
+// ==================== SCREENSHOT ====================
+function takeScreenshot() {
+  renderer.render(scene, camera);
+  const dataURL = renderer.domElement.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataURL;
+  a.download = 'drone-flight-' + new Date().toISOString().slice(0,10) + '.png';
+  a.click();
+  showToast(lang === 'zh' ? '截图已保存' : 'Screenshot saved');
+}
+
+// ==================== FULLSCREEN MAP ====================
+function toggleFullscreenMap() {
+  const fs = document.getElementById('map-fullscreen');
+  if (fs.classList.contains('show')) {
+    fs.classList.remove('show');
+  } else {
+    fs.classList.add('show');
+    renderFullscreenMap();
+  }
+}
+function renderFullscreenMap() {
+  const canvas = document.getElementById('map-fullscreen-canvas');
+  const miniCanvas = document.getElementById('minimap-canvas');
+  const size = Math.min(window.innerWidth - 32, window.innerHeight - 60);
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const miniCtx = miniCanvas.getContext('2d');
+  // Scale up minimap
+  ctx.fillStyle = '#1a1d23';
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(miniCanvas, 0, 0, 180, 180, 0, 0, size, size);
+}
+
+// ==================== WAYPOINT LABELS ====================
+function addWaypointLabels(points) {
+  // Remove old labels
+  if (state._waypointLabels) {
+    state._waypointLabels.forEach(function(g) { scene.remove(g); });
+  }
+  state._waypointLabels = [];
+  // Add labels at key points: start, every 20% of flight, end
+  const indices = [0];
+  for (let i = 1; i <= 4; i++) indices.push(Math.floor(points.length * i / 5));
+  indices.push(points.length - 1);
+  const uniqueIndices = [...new Set(indices)];
+
+  uniqueIndices.forEach(function(idx) {
+    const p = points[idx];
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'rgba(77,166,255,0.9)';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('WP' + (idx === 0 ? ' Start' : idx === points.length-1 ? ' End' : ' ' + idx), 32, 20);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.set(p.x, p.y + 2.5, p.z);
+    sprite.scale.set(6, 3, 1);
+    scene.add(sprite);
+    state._waypointLabels.push(sprite);
+  });
+}
+
 // ==================== PLAYBACK CONTROL ====================
 function togglePlay() {
   state.isPlaying = !state.isPlaying;
@@ -2973,7 +3220,7 @@ function setSpeed(speed) {
 }
 
 function cycleSpeed() {
-  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
   const currentIdx = speeds.indexOf(state.playbackSpeed);
   const nextIdx = (currentIdx + 1) % speeds.length;
   setSpeed(speeds[nextIdx]);
@@ -3000,13 +3247,44 @@ function seekTo(fraction) {
   updatePlaybackUI();
 }
 
+// ==================== COMPARE TRAJECTORY ====================
+function loadCompareFlightData(data) {
+  let points = Array.isArray(data) ? data : (data.points || data.trajectory || []);
+  if (points.length < 2) { showToast('Need >= 2 points for compare', 'error'); return; }
+  const refLat = points[0].lat || 39.992;
+  const refLng = points[0].lng || 116.305;
+  state.flightData2 = points.map(function(p, i) {
+    const lat = p.lat != null ? p.lat : refLat;
+    const lng = p.lng != null ? p.lng : refLng;
+    const x = p.x != null ? p.x : gpsToLocal(lat, lng, p.alt || p.y || 0, refLat, refLng).x;
+    const y = p.alt != null ? p.alt : (p.y != null ? p.y : 0);
+    const z = p.z != null ? p.z : gpsToLocal(lat, lng, p.alt || 0, refLat, refLng).z;
+    return { t: p.t != null ? p.t : i, x, y, z, heading: p.heading || 0, speed: p.speed || 0, pitch: p.pitch || 0, roll: p.roll || 0, lat, lng, alt: y };
+  });
+  state.showCompare = true;
+  // Create compare curve
+  const curvePoints = state.flightData2.map(function(p) { return new THREE.Vector3(p.x, p.y, p.z); });
+  state.curve2 = new THREE.CatmullRomCurve3(curvePoints);
+  // Render compare trajectory in orange
+  if (compareGroup) trajectoryGroup.remove(compareGroup);
+  compareGroup = new THREE.Group();
+  const tubeGeo2 = new THREE.TubeGeometry(state.curve2, Math.min(points.length * 2, 400), 0.08, 8, false);
+  const tubeMat2 = new THREE.MeshStandardMaterial({ color: 0xff9800, roughness: 0.3, emissive: 0xff9800, emissiveIntensity: 0.4, side: THREE.DoubleSide });
+  const tube2 = new THREE.Mesh(tubeGeo2, tubeMat2);
+  tube2.renderOrder = 4;
+  compareGroup.add(tube2);
+  trajectoryGroup.add(compareGroup);
+  showToast('Compare trajectory loaded (orange)');
+}
+let compareGroup = null;
+
 // ==================== LOAD DATA ====================
 function loadFlightData(data) {
   // Accept both array of points and {points: [...]} format
   let points = Array.isArray(data) ? data : (data.points || data.trajectory || []);
 
   if (points.length < 2) {
-    alert(t('no_data'));
+    showToast(t('no_data'), 'error');
     return;
   }
 
@@ -3087,6 +3365,10 @@ function applyLoadedData() {
   state.isPlaying = true;
   updatePlaybackUI();
   updateURLState();
+  // Hide import prompt when user data is loaded
+  dismissImportPrompt();
+  // Add waypoint labels
+  addWaypointLabels(state.flightData);
 }
 
 // ==================== CSV PARSER ====================
@@ -3180,7 +3462,7 @@ function handleFileImport(file) {
         if (ev.data.type === 'result') {
           loadFlightDataFromWorker(ev.data.points, ev.data.stats);
         } else if (ev.data.type === 'error') {
-          alert('Parse error: ' + ev.data.message);
+          showToast('Parse error: ' + ev.data.message, 'error');
         }
       };
       worker.postMessage({ type: 'parse', raw: text, fileName: file.name });
@@ -3193,7 +3475,7 @@ function handleFileImport(file) {
       if (isCSV) {
         data = parseCSVText(text);
         if (!data) {
-          alert('CSV 解析失败 — 无法识别格式 / Failed to parse CSV — unrecognized format');
+          showToast('CSV parse failed — unrecognized format', 'error');
           return;
         }
       } else {
@@ -3201,7 +3483,28 @@ function handleFileImport(file) {
       }
       loadFlightData(data);
     } catch (err) {
-      alert('Parse error: ' + err.message);
+      showToast('Parse error: ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Compare file import (for Shift-click import)
+function handleCompareFileImport(file) {
+  const isCSV = /\.csv$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      let data;
+      if (isCSV) {
+        data = parseCSVText(e.target.result);
+        if (!data) { showToast('CSV parse failed', 'error'); return; }
+      } else {
+        data = JSON.parse(e.target.result);
+      }
+      loadCompareFlightData(data);
+    } catch(err) {
+      showToast('Compare load error: ' + err.message, 'error');
     }
   };
   reader.readAsText(file);
@@ -3211,12 +3514,12 @@ function handleFileImport(file) {
 // Playback buttons
 document.getElementById('btn-play').addEventListener('click', togglePlay);
 document.getElementById('btn-slower').addEventListener('click', () => {
-  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
   const idx = speeds.indexOf(state.playbackSpeed);
   if (idx > 0) setSpeed(speeds[idx - 1]);
 });
 document.getElementById('btn-faster').addEventListener('click', () => {
-  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
+  const speeds = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
   const idx = speeds.indexOf(state.playbackSpeed);
   if (idx < speeds.length - 1) setSpeed(speeds[idx + 1]);
 });
@@ -3237,6 +3540,26 @@ document.getElementById('timeline').addEventListener('input', (e) => {
 document.querySelectorAll('.cam-btn').forEach(btn => {
   btn.addEventListener('click', () => setCameraMode(btn.dataset.cam));
 });
+
+// Mobile camera buttons
+document.querySelectorAll('.mcam-btn').forEach(btn => {
+  btn.addEventListener('click', () => setCameraMode(btn.dataset.cam));
+});
+// Sync mobile buttons when camera mode changes (in setCameraMode)
+const origSetCameraMode = setCameraMode;
+setCameraMode = function(mode) {
+  origSetCameraMode(mode);
+  document.querySelectorAll('.mcam-btn').forEach(b => b.classList.remove('active'));
+  const mbtn = document.querySelector('.mcam-btn[data-cam="' + mode + '"]');
+  if (mbtn) mbtn.classList.add('active');
+};
+
+// Screenshot button
+document.getElementById('btn-screenshot').addEventListener('click', takeScreenshot);
+
+// Minimap click to fullscreen
+document.getElementById('minimap-wrap').addEventListener('click', toggleFullscreenMap);
+document.getElementById('map-close-btn').addEventListener('click', toggleFullscreenMap);
 
 // Lang toggle
 document.getElementById('lang-btn').addEventListener('click', () => {
@@ -3260,10 +3583,22 @@ document.getElementById('help-modal').addEventListener('click', (e) => {
 document.getElementById('btn-import').addEventListener('click', () => {
   document.getElementById('file-input').click();
 });
+let _compareNextImport = false;
 document.getElementById('file-input').addEventListener('change', (e) => {
-  if (e.target.files[0]) handleFileImport(e.target.files[0]);
+  if (e.target.files[0]) {
+    if (_compareNextImport) {
+      handleCompareFileImport(e.target.files[0]);
+      _compareNextImport = false;
+    } else {
+      handleFileImport(e.target.files[0]);
+    }
+  }
   e.target.value = '';
 });
+
+// Track shift key for compare mode
+document.addEventListener('keydown', function(e) { if (e.key === 'Shift') _compareNextImport = true; });
+document.addEventListener('keyup', function(e) { if (e.key === 'Shift') _compareNextImport = false; });
 
 // Drag and drop
 document.addEventListener('dragover', (e) => {
@@ -3365,14 +3700,17 @@ function init() {
     if (lo) lo.style.display = 'none';
   }, 500);
 
-  // Keyboard hint: auto-hide after first keypress
-  let kbHintHidden = false;
-  function hideKbHint() {
-    if (kbHintHidden) return;
-    kbHintHidden = true;
+  // Keyboard hint: auto-hide after 15s, toggle with ?
+  setTimeout(function() {
     document.getElementById('kb-hint-bar').classList.add('hidden');
-  }
-  document.addEventListener('keydown', hideKbHint, { once: true });
+  }, 15000);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const bar = document.getElementById('kb-hint-bar');
+      bar.classList.toggle('hidden');
+    }
+  });
 
   // Mobile touch hints: show on touch devices, hide after first touch
   if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
@@ -3481,7 +3819,7 @@ function animate() {
 function loadURLState() {
   const params = new URLSearchParams(window.location.hash.slice(1));
   const speed = parseFloat(params.get('speed'));
-  if (speed && [0.25, 0.5, 1.0, 2.0, 4.0, 8.0].includes(speed)) {
+  if (speed && [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0].includes(speed)) {
     setSpeed(speed);
   }
   if (params.get('loop') === '1') {
@@ -3528,6 +3866,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================== START ====================
 init();
 animate();
+
+// Register service worker for PWA offline support
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
 
 console.log('[OK] 无人机飞行轨迹可视化已就绪 - 自动播放中');
 console.log('[OK] Drag JSON to import | Space: play/pause | 1/2/3: camera | R: reset view');
