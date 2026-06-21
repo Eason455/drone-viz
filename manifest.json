@@ -1,0 +1,18 @@
+{
+  "name": "Drone Flight Trajectory 3D Visualization",
+  "short_name": "Drone Viz",
+  "description": "3D drone flight trajectory visualization with telemetry, multi-camera views, and flight log import",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1d23",
+  "theme_color": "#4da6ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231a1d23'/><polygon points='16,4 22,28 16,22 10,28' fill='%234da6ff'/></svg>",
+      "sizes": "32x32",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["utilities", "navigation"]
+}
