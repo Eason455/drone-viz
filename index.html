@@ -595,7 +595,7 @@ a { color: var(--accent); }
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       选择文件
     </button>
-    <button class="btn-dismiss" onclick="dismissImportPrompt()" data-i18n="import_dismiss">或查看演示数据</button>
+    <button class="btn-dismiss" id="btn-dismiss-import" data-i18n="import_dismiss">或查看演示数据</button>
   </div>
 </div>
 
@@ -3556,6 +3556,10 @@ setCameraMode = function(mode) {
 
 // Screenshot button
 document.getElementById('btn-screenshot').addEventListener('click', takeScreenshot);
+
+// Import prompt dismiss
+const dismissBtn = document.getElementById('btn-dismiss-import');
+if (dismissBtn) dismissBtn.addEventListener('click', dismissImportPrompt);
 
 // Minimap click to fullscreen
 document.getElementById('minimap-wrap').addEventListener('click', toggleFullscreenMap);
